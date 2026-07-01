@@ -4009,3 +4009,230 @@ updateAuthUI = async function(session) {
 };
 
 ensureHistoryNavigation();
+
+/* v27: detailed performance analysis */
+let rankingModeFilter = "all";
+let rankingRateFilter = "all";
+
+const getRankingSessionsForPeriodV26 = getRankingSessionsForPeriod;
+getRankingSessionsForPeriod = function() {
+  return getRankingSessionsForPeriodV26().filter((session) => {
+    const modeMatched = rankingModeFilter === "all" || session.game_mode === rankingModeFilter;
+    const rateKey = `${session.rate_label || ""}::${num(session.rate_multiplier || 0)}`;
+    const rateMatched = rankingRateFilter === "all" || rateKey === rankingRateFilter;
+    return modeMatched && rateMatched;
+  });
+};
+
+function getRankingRateOptions() {
+  return [...new Map(
+    rankingRaw.sessions
+      .map((session) => {
+        const key = `${session.rate_label || ""}::${num(session.rate_multiplier || 0)}`;
+        return [key, { key, label: `${session.rate_label || "カスタム"}（×${formatNumber(session.rate_multiplier || 0, 0)}）` }];
+      })
+  ).values()].sort((a, b) => a.label.localeCompare(b.label, "ja"));
+}
+
+function rankingModeFilterHtml() {
+  const options = [
+    ["all", "すべて"],
+    ["sanma", "三人打ち"],
+    ["yonin_sanma", "四人三打ち"],
+    ["yonma", "四人打ち"]
+  ];
+  return options.map(([key, label]) => `<button type="button" class="ranking-filter-button ${rankingModeFilter === key ? "active" : ""}" data-ranking-mode-filter="${key}">${label}</button>`).join("");
+}
+
+function buildDetailedPerformanceProfile(memberId) {
+  const dashboard = buildRankingDashboard();
+  const selected = dashboard.entries.find((entry) => entry.memberId === memberId);
+  if (!selected) return null;
+
+  const sessions = getRankingSessionsForPeriod().slice().sort((a, b) => {
+    const byDate = String(a.session_date).localeCompare(String(b.session_date));
+    return byDate || String(a.created_at || "").localeCompare(String(b.created_at || ""));
+  });
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const membersBySession = new Map();
+  const hanchansBySession = new Map();
+  const resultsByHanchan = new Map();
+  const dailyBySession = new Map();
+
+  rankingRaw.sessionMembers.filter((member) => sessionIds.has(member.session_id)).forEach((member) => {
+    if (!membersBySession.has(member.session_id)) membersBySession.set(member.session_id, []);
+    membersBySession.get(member.session_id).push(member.member_id);
+  });
+  rankingRaw.hanchans.filter((hanchan) => sessionIds.has(hanchan.session_id)).forEach((hanchan) => {
+    if (!hanchansBySession.has(hanchan.session_id)) hanchansBySession.set(hanchan.session_id, []);
+    hanchansBySession.get(hanchan.session_id).push(hanchan);
+  });
+  rankingRaw.results.forEach((result) => {
+    if (!resultsByHanchan.has(result.hanchan_id)) resultsByHanchan.set(result.hanchan_id, []);
+    resultsByHanchan.get(result.hanchan_id).push(result);
+  });
+  dashboard.dailySessions.forEach((day) => {
+    const player = day.players.find((item) => item.memberId === memberId);
+    if (player) dailyBySession.set(day.sessionId, { ...day, player });
+  });
+
+  const makeStat = (label) => ({ label, sessions: 0, hanchans: 0, rankSum: 0, firstCount: 0, lastCount: 0, totalPt: 0 });
+  const modeStats = new Map();
+  const rateStats = new Map();
+  const timeline = [];
+  const dailyValues = [];
+
+  sessions.forEach((session) => {
+    const day = dailyBySession.get(session.id);
+    if (!day) return;
+    const memberCount = (membersBySession.get(session.id) || []).length || (session.game_mode === "sanma" ? 3 : 4);
+    const modeKey = session.game_mode || "other";
+    const rateKey = `${session.rate_label || "カスタム"}::${num(session.rate_multiplier || 0)}`;
+    if (!modeStats.has(modeKey)) modeStats.set(modeKey, makeStat(getModeLabel(modeKey)));
+    if (!rateStats.has(rateKey)) rateStats.set(rateKey, makeStat(`${session.rate_label || "カスタム"}（×${formatNumber(session.rate_multiplier || 0, 0)}）`));
+    const modeStat = modeStats.get(modeKey);
+    const rateStat = rateStats.get(rateKey);
+    [modeStat, rateStat].forEach((stat) => { stat.sessions += 1; stat.totalPt = roundTo(stat.totalPt + num(day.player.totalPt), 2); });
+    dailyValues.push({ date: session.session_date, totalPt: num(day.player.totalPt), mode: session.game_mode, rateLabel: session.rate_label });
+
+    const hanchans = (hanchansBySession.get(session.id) || []).slice().sort((a, b) => num(a.sequence_no) - num(b.sequence_no));
+    hanchans.forEach((hanchan) => {
+      const result = (resultsByHanchan.get(hanchan.id) || []).find((item) => item.member_id === memberId);
+      if (!result) return;
+      const rank = num(result.rank);
+      [modeStat, rateStat].forEach((stat) => {
+        stat.hanchans += 1;
+        stat.rankSum += rank;
+        if (rank === 1) stat.firstCount += 1;
+        if (rank === memberCount) stat.lastCount += 1;
+      });
+      timeline.push({ date: session.session_date, createdAt: session.created_at, sequenceNo: num(hanchan.sequence_no), rank, memberCount });
+    });
+  });
+
+  let currentWin = 0, currentLast = 0, maxWin = 0, maxLast = 0;
+  timeline.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || a.sequenceNo - b.sequenceNo).forEach((item) => {
+    if (item.rank === 1) {
+      currentWin += 1;
+      currentLast = 0;
+    } else if (item.rank === item.memberCount) {
+      currentLast += 1;
+      currentWin = 0;
+    } else {
+      currentWin = 0;
+      currentLast = 0;
+    }
+    maxWin = Math.max(maxWin, currentWin);
+    maxLast = Math.max(maxLast, currentLast);
+  });
+
+  const summarize = (stat) => ({
+    ...stat,
+    averageRank: stat.hanchans ? roundTo(stat.rankSum / stat.hanchans, 2) : null,
+    firstRate: stat.hanchans ? roundTo((stat.firstCount / stat.hanchans) * 100, 1) : null,
+    lastRate: stat.hanchans ? roundTo((stat.lastCount / stat.hanchans) * 100, 1) : null
+  });
+  const bestDay = dailyValues.length ? dailyValues.reduce((best, item) => item.totalPt > best.totalPt ? item : best, dailyValues[0]) : null;
+  const worstDay = dailyValues.length ? dailyValues.reduce((worst, item) => item.totalPt < worst.totalPt ? item : worst, dailyValues[0]) : null;
+
+  return {
+    selected,
+    averageRank: selected.averageRank,
+    firstRate: selected.firstRate,
+    lastRate: selected.hanchans ? roundTo((timeline.filter((item) => item.rank === item.memberCount).length / selected.hanchans) * 100, 1) : null,
+    bestDay,
+    worstDay,
+    maxWin,
+    maxLast,
+    modeStats: [...modeStats.values()].map(summarize).sort((a, b) => b.totalPt - a.totalPt),
+    rateStats: [...rateStats.values()].map(summarize).sort((a, b) => b.totalPt - a.totalPt)
+  };
+}
+
+function renderPerformanceTable(rows, emptyText) {
+  if (!rows.length) return `<p class="ranking-note">${escapeHtml(emptyText)}</p>`;
+  return `<div class="performance-table-wrap"><table class="performance-table"><thead><tr><th>区分</th><th>半荘</th><th>平均順位</th><th>1位率</th><th>ラス率</th><th>ゲームpt</th></tr></thead><tbody>${rows.map((row) => `<tr><th>${escapeHtml(row.label)}</th><td>${row.hanchans}回</td><td>${row.averageRank ?? "-"}</td><td>${row.firstRate !== null ? `${row.firstRate}%` : "-"}</td><td>${row.lastRate !== null ? `${row.lastRate}%` : "-"}</td><td>${formatPtMarkup(row.totalPt)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderDetailedPerformanceSection() {
+  const dashboard = buildRankingDashboard();
+  const entries = dashboard.entries;
+  if (!entries.length) return "";
+  if (!entries.some((entry) => entry.memberId === rankingSelectedMemberId)) rankingSelectedMemberId = entries[0].memberId;
+  const profile = buildDetailedPerformanceProfile(rankingSelectedMemberId);
+  if (!profile) return "";
+  const playerOptions = entries.map((entry) => `<option value="${entry.memberId}" ${entry.memberId === rankingSelectedMemberId ? "selected" : ""}>${escapeHtml(entry.displayName)}</option>`).join("");
+  const labelForDay = (day) => day ? `${formatDate(day.date)}　${formatPtMarkup(day.totalPt)}` : "-";
+  return `<section class="game-section detailed-analysis-section">
+    <div class="game-section-heading"><div><p class="game-section-title">成績詳細分析</p><p class="game-section-note">順位・連勝／連ラスは半荘単位、最高／最低ゲームptは日次のチップ込みゲーム収支です。</p></div><select id="detailedAnalysisMemberSelect" class="ranking-member-select">${playerOptions}</select></div>
+    <div class="detailed-analysis-kpis">
+      <div><span>平均順位</span><strong>${profile.averageRank ?? "-"}</strong></div>
+      <div><span>1位率</span><strong>${profile.firstRate !== null ? `${profile.firstRate}%` : "-"}</strong></div>
+      <div><span>ラス率</span><strong>${profile.lastRate !== null ? `${profile.lastRate}%` : "-"}</strong></div>
+      <div><span>最長連勝</span><strong>${profile.maxWin}連勝</strong></div>
+      <div><span>最長連ラス</span><strong>${profile.maxLast}連ラス</strong></div>
+      <div><span>最高ゲームpt</span><strong>${labelForDay(profile.bestDay)}</strong></div>
+      <div><span>最低ゲームpt</span><strong>${labelForDay(profile.worstDay)}</strong></div>
+    </div>
+    <div class="performance-breakdown-grid">
+      <div class="performance-breakdown-card"><p>形式別成績</p>${renderPerformanceTable(profile.modeStats, "形式別の成績がありません。")}</div>
+      <div class="performance-breakdown-card"><p>レート別成績</p>${renderPerformanceTable(profile.rateStats, "レート別の成績がありません。")}</div>
+    </div>
+  </section>`;
+}
+
+function bindDetailedAnalysisControls() {
+  document.querySelectorAll("[data-ranking-mode-filter]").forEach((button) => button.addEventListener("click", () => {
+    rankingModeFilter = button.dataset.rankingModeFilter;
+    rankingSelectedMemberId = "";
+    rankingOpenSessionId = null;
+    renderRankingPage();
+  }));
+  document.getElementById("rankingRateFilter")?.addEventListener("change", (event) => {
+    rankingRateFilter = event.target.value;
+    rankingSelectedMemberId = "";
+    rankingOpenSessionId = null;
+    renderRankingPage();
+  });
+  document.getElementById("detailedAnalysisMemberSelect")?.addEventListener("change", (event) => {
+    rankingSelectedMemberId = event.target.value;
+    renderRankingPage();
+  });
+  document.querySelector("[data-reset-ranking-analysis-filter]")?.addEventListener("click", () => {
+    rankingModeFilter = "all";
+    rankingRateFilter = "all";
+    rankingSelectedMemberId = "";
+    rankingOpenSessionId = null;
+    renderRankingPage();
+  });
+}
+
+function getDetailedAnalysisFilterHtml() {
+  const rateOptions = getRankingRateOptions();
+  if (rankingRateFilter !== "all" && !rateOptions.some((item) => item.key === rankingRateFilter)) rankingRateFilter = "all";
+  return `<div class="ranking-analysis-filter-row"><p>形式</p><div class="ranking-filter-list">${rankingModeFilterHtml()}</div><label class="ranking-rate-filter">レート<select id="rankingRateFilter"><option value="all">すべて</option>${rateOptions.map((item) => `<option value="${escapeHtml(item.key)}" ${rankingRateFilter === item.key ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select></label></div>`;
+}
+
+function enhanceRankingWithDetailedAnalysis() {
+  const page = getPageWorkspace();
+  if (!rankingRaw.sessions.length) return;
+  const rankingPanel = page.querySelector(".ranking-control-panel");
+  if (!rankingPanel) {
+    const emptyCard = page.querySelector(".ranking-empty-card");
+    if (emptyCard) {
+      emptyCard.insertAdjacentHTML("beforeend", `<div class="ranking-empty-filter"><p>現在の形式・レート条件に一致する精算済み記録がありません。</p>${getDetailedAnalysisFilterHtml()}<button type="button" class="secondary-button" data-reset-ranking-analysis-filter>形式・レート条件をリセット</button></div>`);
+      bindDetailedAnalysisControls();
+    }
+    return;
+  }
+  rankingPanel.insertAdjacentHTML("beforeend", getDetailedAnalysisFilterHtml());
+  const target = page.querySelector(".daily-history-section") || page.querySelector(".yakuman-ranking-list")?.closest(".game-section");
+  if (target) target.insertAdjacentHTML("beforebegin", renderDetailedPerformanceSection());
+  bindDetailedAnalysisControls();
+}
+
+const renderRankingPageV26 = renderRankingPage;
+renderRankingPage = function() {
+  renderRankingPageV26();
+  enhanceRankingWithDetailedAnalysis();
+};
