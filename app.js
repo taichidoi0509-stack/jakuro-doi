@@ -4470,3 +4470,592 @@ function openResultShareCard(data) {
     }
   });
 }
+
+/* v30: venue management and venue analytics */
+let matchVenues = [];
+let matchVenuesGroupId = null;
+let venueRealtimeChannel = null;
+let venueRealtimeGroupId = null;
+let venueAnalyticsSelectedId = "";
+
+function resetVenueState() {
+  matchVenues = [];
+  matchVenuesGroupId = null;
+  venueAnalyticsSelectedId = "";
+}
+
+async function loadMatchVenues() {
+  if (!supabaseClient || !currentSession || !activeGroupId) {
+    resetVenueState();
+    return [];
+  }
+  if (matchVenuesGroupId !== activeGroupId) {
+    matchVenues = [];
+    matchVenuesGroupId = activeGroupId;
+    venueAnalyticsSelectedId = "";
+  }
+  const { data, error } = await supabaseClient
+    .from("match_venues")
+    .select("id, group_id, name, note, is_archived, created_at, updated_at")
+    .eq("group_id", activeGroupId)
+    .order("is_archived", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw error;
+  matchVenues = data || [];
+  return matchVenues;
+}
+
+function getMatchVenue(venueId) {
+  return matchVenues.find((venue) => venue.id === venueId) || null;
+}
+
+function getMatchVenueName(venueId, fallback = "会場未設定") {
+  if (!venueId) return fallback;
+  return getMatchVenue(venueId)?.name || "削除済み会場";
+}
+
+function getSelectableVenues(currentVenueId = "") {
+  return matchVenues.filter((venue) => !venue.is_archived || venue.id === currentVenueId);
+}
+
+async function fetchVenueSessionMeta(sessionIds = []) {
+  if (!supabaseClient || !activeGroupId || !sessionIds.length) return [];
+  const { data, error } = await supabaseClient
+    .from("match_sessions")
+    .select("id, venue_id, venue_fee_total")
+    .eq("group_id", activeGroupId)
+    .in("id", sessionIds);
+  if (error) throw error;
+  return data || [];
+}
+
+function mergeVenueSessionMeta(rows, metaRows) {
+  const byId = new Map((metaRows || []).map((row) => [row.id, row]));
+  (rows || []).forEach((row) => {
+    const meta = byId.get(row.id);
+    if (!meta) return;
+    row.venue_id = meta.venue_id || null;
+    if (meta.venue_fee_total !== undefined && meta.venue_fee_total !== null) row.venue_fee_total = meta.venue_fee_total;
+  });
+}
+
+async function hydrateVenueSessionRows(rows) {
+  if (!rows?.length) return;
+  const metaRows = await fetchVenueSessionMeta(rows.map((row) => row.id));
+  mergeVenueSessionMeta(rows, metaRows);
+}
+
+async function recordVenueActivity(summary, entityType = "group", entityId = activeGroupId, details = {}) {
+  try {
+    await recordActivity({
+      groupId: activeGroupId,
+      eventType: "group_edited",
+      entityType,
+      entityId,
+      summary,
+      details: { before: null, after: details, source: "venue" }
+    });
+  } catch (error) {
+    console.warn("会場操作の履歴を記録できませんでした。", error);
+  }
+}
+
+async function promptCreateMatchVenue(defaultName = "") {
+  const name = window.prompt("会場名を入力してください。", defaultName);
+  if (name === null) return null;
+  if (!String(name).trim()) {
+    alert("会場名を入力してください。");
+    return null;
+  }
+  const note = window.prompt("補足メモ（任意）を入力してください。", "");
+  if (note === null) return null;
+  const { data, error } = await supabaseClient.rpc("create_match_venue", {
+    p_group_id: activeGroupId,
+    p_name: String(name).trim(),
+    p_note: String(note).trim()
+  });
+  if (error) throw error;
+  await recordVenueActivity(`会場「${String(name).trim()}」を追加しました。`, "group", activeGroupId, { venue_name: String(name).trim() });
+  await loadMatchVenues();
+  return data;
+}
+
+function buildVenueSelectOptions(selectedId = "", includeBlank = true) {
+  const options = [];
+  if (includeBlank) options.push(`<option value="">会場を設定しない</option>`);
+  getSelectableVenues(selectedId).forEach((venue) => {
+    const archived = venue.is_archived ? "（アーカイブ）" : "";
+    options.push(`<option value="${venue.id}" ${venue.id === selectedId ? "selected" : ""}>${escapeHtml(venue.name)}${archived}</option>`);
+  });
+  return options.join("");
+}
+
+function injectVenueCreateSection() {
+  const form = document.getElementById("createSessionForm");
+  if (!form || form.querySelector(".session-venue-create-section")) return;
+  const selectedId = sessionDraft.venueId || "";
+  const section = document.createElement("section");
+  section.className = "game-section session-venue-create-section";
+  section.innerHTML = `
+    <div class="game-section-heading"><div><p class="game-section-title">会場</p><p class="game-section-note">会場を選ぶと、あとから会場別の成績・場代を集計できます。未設定のままでも記録できます。</p></div></div>
+    <div class="session-venue-picker">
+      <select id="newSessionVenueSelect">${buildVenueSelectOptions(selectedId)}</select>
+      <button id="createVenueFromSessionButton" class="secondary-button" type="button">＋ 会場を追加</button>
+    </div>
+  `;
+  const notesSection = Array.from(form.querySelectorAll(".game-section")).find((node) => node.querySelector("textarea[data-session-field='notes']"));
+  if (notesSection) form.insertBefore(section, notesSection);
+  else form.append(section);
+
+  section.querySelector("#newSessionVenueSelect")?.addEventListener("change", (event) => {
+    sessionDraft.venueId = event.target.value || "";
+  });
+  section.querySelector("#createVenueFromSessionButton")?.addEventListener("click", async () => {
+    try {
+      const venueId = await promptCreateMatchVenue();
+      if (!venueId) return;
+      sessionDraft.venueId = venueId;
+      renderCreateSessionView();
+    } catch (error) {
+      alert(error.message || "会場を追加できませんでした。");
+    }
+  });
+
+  const existingSubmitCapture = form.dataset.venueSubmitCaptureBound;
+  if (!existingSubmitCapture) {
+    form.dataset.venueSubmitCaptureBound = "1";
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const beforeSessionId = activeMatchSessionId;
+      await createMatchSessionV29(event);
+      const createdSessionId = activeMatchSessionId;
+      const selectedVenueId = sessionDraft.venueId || "";
+      if (!createdSessionId || createdSessionId === beforeSessionId || !selectedVenueId) return;
+      try {
+        markLocalRealtimeWrite();
+        const { error } = await supabaseClient.rpc("set_match_session_venue", {
+          p_session_id: createdSessionId,
+          p_venue_id: selectedVenueId
+        });
+        if (error) throw error;
+        await recordVenueActivity(`新しい日次記録に会場「${getMatchVenueName(selectedVenueId)}」を設定しました。`, "session", createdSessionId, { venue_id: selectedVenueId });
+        await loadMatchSessions();
+      } catch (error) {
+        alert(`日次記録は作成しましたが、会場を設定できませんでした。\n${error.message || ""}`);
+      }
+    }, true);
+  }
+}
+
+function injectActiveSessionVenueSection() {
+  const page = getPageWorkspace();
+  const session = activeMatchSession;
+  if (!page || !session || page.querySelector(".session-venue-summary-section")) return;
+  const currentVenueId = session.venue_id || "";
+  const currentVenue = getMatchVenue(currentVenueId);
+  const costSection = Array.from(page.querySelectorAll(".game-section")).find((node) => node.querySelector(".game-section-title")?.textContent?.trim() === "場代精算");
+  const section = document.createElement("section");
+  section.className = "game-section session-venue-summary-section";
+  section.innerHTML = `
+    <div class="game-section-heading"><div><p class="game-section-title">会場</p><p class="game-section-note">会場を設定すると、会場別の対局数・場代・成績を集計できます。</p></div><span class="venue-current-badge ${currentVenueId ? "set" : ""}">${escapeHtml(getMatchVenueName(currentVenueId))}</span></div>
+    <div class="session-venue-picker">
+      <select id="activeSessionVenueSelect">${buildVenueSelectOptions(currentVenueId)}</select>
+      <button id="saveActiveSessionVenueButton" class="secondary-button" type="button">会場を保存</button>
+      <button id="createVenueFromActiveSessionButton" class="icon-text-button" type="button">＋ 会場追加</button>
+    </div>
+    ${currentVenue?.note ? `<p class="venue-note-display">${escapeHtml(currentVenue.note)}</p>` : ""}
+  `;
+  if (costSection) costSection.insertAdjacentElement("beforebegin", section);
+  else page.querySelector(".game-card")?.append(section);
+
+  section.querySelector("#saveActiveSessionVenueButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const nextVenueId = section.querySelector("#activeSessionVenueSelect")?.value || "";
+    if ((session.venue_id || "") === nextVenueId) return;
+    button.disabled = true;
+    button.textContent = "保存中...";
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("set_match_session_venue", {
+        p_session_id: session.id,
+        p_venue_id: nextVenueId || null
+      });
+      if (error) throw error;
+      session.venue_id = nextVenueId || null;
+      const row = sessionList.find((item) => item.id === session.id);
+      if (row) row.venue_id = session.venue_id;
+      await recordVenueActivity(
+        nextVenueId ? `会場を「${getMatchVenueName(nextVenueId)}」に変更しました。` : "会場設定を解除しました。",
+        "session",
+        session.id,
+        { venue_id: nextVenueId || null }
+      );
+      gameMessage = "会場を保存しました。";
+      renderActiveSessionView();
+    } catch (error) {
+      alert(error.message || "会場を保存できませんでした。");
+      button.disabled = false;
+      button.textContent = "会場を保存";
+    }
+  });
+  section.querySelector("#createVenueFromActiveSessionButton")?.addEventListener("click", async () => {
+    try {
+      const venueId = await promptCreateMatchVenue();
+      if (!venueId) return;
+      session.venue_id = venueId;
+      renderActiveSessionView();
+    } catch (error) {
+      alert(error.message || "会場を追加できませんでした。");
+    }
+  });
+}
+
+function venueSettingsRowHtml(venue) {
+  return `<article class="venue-settings-row ${venue.is_archived ? "archived" : ""}">
+    <div class="venue-settings-main"><strong>${escapeHtml(venue.name)}</strong>${venue.is_archived ? `<span class="venue-archive-label">アーカイブ</span>` : ""}${venue.note ? `<p>${escapeHtml(venue.note)}</p>` : `<p class="venue-empty-note">メモなし</p>`}</div>
+    <div class="venue-settings-actions"><button class="secondary-button" type="button" data-edit-venue-id="${venue.id}">編集</button><button class="${venue.is_archived ? "secondary-button" : "danger-outline-button"}" type="button" data-toggle-venue-archive-id="${venue.id}" data-venue-archive-state="${venue.is_archived ? "restore" : "archive"}">${venue.is_archived ? "復帰" : "アーカイブ"}</button></div>
+  </article>`;
+}
+
+function injectVenueSettingsSection() {
+  const page = getPageWorkspace();
+  const card = page?.querySelector(".settings-card");
+  if (!card || card.querySelector(".venue-settings-section")) return;
+  const active = matchVenues.filter((venue) => !venue.is_archived);
+  const archived = matchVenues.filter((venue) => venue.is_archived);
+  const section = document.createElement("section");
+  section.className = "settings-section venue-settings-section";
+  section.innerHTML = `
+    <div class="settings-section-heading"><div><p class="eyebrow">VENUES</p><h3>会場管理</h3></div><span class="member-role-badge">${active.length}会場</span></div>
+    <p class="settings-help">会場を登録すると、新規記録・過去記録への紐付けと、会場別の成績・場代集計に使えます。アーカイブしても過去の記録には残ります。</p>
+    <form id="createVenueForm" class="venue-create-form"><label>会場名<input name="venueName" type="text" maxlength="80" required placeholder="例：○○雀荘"></label><label>メモ（任意）<input name="venueNote" type="text" maxlength="200" placeholder="例：フリー打ち放題"></label><button class="primary-button" type="submit">会場を追加</button></form>
+    <div class="venue-settings-list">${active.length ? active.map(venueSettingsRowHtml).join("") : `<p class="game-section-note">登録された会場はありません。</p>`}</div>
+    ${archived.length ? `<details class="venue-archived-details"><summary>アーカイブ済み（${archived.length}件）</summary><div class="venue-settings-list">${archived.map(venueSettingsRowHtml).join("")}</div></details>` : ""}
+  `;
+  const anchor = card.querySelector(".match-template-settings-section") || card.querySelector(".data-export-section") || card.lastElementChild;
+  anchor?.insertAdjacentElement("afterend", section);
+
+  section.querySelector("#createVenueForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = form.querySelector("button[type='submit']");
+    const formData = new FormData(form);
+    submit.disabled = true;
+    try {
+      markLocalRealtimeWrite();
+      const name = String(formData.get("venueName") || "").trim();
+      const note = String(formData.get("venueNote") || "").trim();
+      const { data, error } = await supabaseClient.rpc("create_match_venue", { p_group_id: activeGroupId, p_name: name, p_note: note });
+      if (error) throw error;
+      await recordVenueActivity(`会場「${name}」を追加しました。`, "group", activeGroupId, { venue_id: data, venue_name: name });
+      settingsMessage = `会場「${name}」を追加しました。`;
+      await loadMatchVenues();
+      renderSettingsPage();
+    } catch (error) {
+      alert(error.message || "会場を追加できませんでした。");
+      submit.disabled = false;
+    }
+  });
+
+  section.querySelectorAll("[data-edit-venue-id]").forEach((button) => button.addEventListener("click", async () => {
+    const venue = getMatchVenue(button.dataset.editVenueId);
+    if (!venue) return;
+    const name = window.prompt("会場名を編集してください。", venue.name);
+    if (name === null) return;
+    if (!String(name).trim()) { alert("会場名を入力してください。"); return; }
+    const note = window.prompt("補足メモを編集してください。", venue.note || "");
+    if (note === null) return;
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("update_match_venue", { p_venue_id: venue.id, p_name: String(name).trim(), p_note: String(note).trim() });
+      if (error) throw error;
+      await recordVenueActivity(`会場「${venue.name}」を編集しました。`, "group", activeGroupId, { before_name: venue.name, after_name: String(name).trim() });
+      settingsMessage = "会場情報を更新しました。";
+      await loadMatchVenues();
+      renderSettingsPage();
+    } catch (error) { alert(error.message || "会場を編集できませんでした。"); }
+  }));
+
+  section.querySelectorAll("[data-toggle-venue-archive-id]").forEach((button) => button.addEventListener("click", async () => {
+    const venue = getMatchVenue(button.dataset.toggleVenueArchiveId);
+    if (!venue) return;
+    const restore = button.dataset.venueArchiveState === "restore";
+    if (!window.confirm(`会場「${venue.name}」を${restore ? "復帰" : "アーカイブ"}しますか？`)) return;
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("archive_match_venue", { p_venue_id: venue.id, p_is_archived: !restore });
+      if (error) throw error;
+      await recordVenueActivity(`会場「${venue.name}」を${restore ? "復帰" : "アーカイブ"}しました。`, "group", activeGroupId, { venue_id: venue.id, is_archived: !restore });
+      settingsMessage = `会場「${venue.name}」を${restore ? "復帰" : "アーカイブ"}しました。`;
+      await loadMatchVenues();
+      renderSettingsPage();
+    } catch (error) { alert(error.message || "会場の状態を変更できませんでした。"); }
+  }));
+}
+
+function buildVenueAnalytics() {
+  const sessions = getRankingSessionsForPeriod();
+  const dashboard = buildRankingDashboard();
+  const dailyBySessionId = new Map(dashboard.dailySessions.map((item) => [item.sessionId, item]));
+  const membersBySession = new Map();
+  rankingRaw.sessionMembers.forEach((member) => {
+    if (!membersBySession.has(member.session_id)) membersBySession.set(member.session_id, []);
+    membersBySession.get(member.session_id).push(member.member_id);
+  });
+  const hanchanCountBySession = new Map();
+  rankingRaw.hanchans.forEach((hanchan) => hanchanCountBySession.set(hanchan.session_id, (hanchanCountBySession.get(hanchan.session_id) || 0) + 1));
+  const prepaymentBySessionMember = new Map(rankingRaw.prepayments.map((row) => [`${row.session_id}:${row.member_id}`, num(row.paid_molly)]));
+  const stats = new Map();
+
+  const ensure = (key, session) => {
+    if (!stats.has(key)) {
+      const venue = getMatchVenue(key);
+      stats.set(key, {
+        id: key,
+        name: key === "__none__" ? "会場未設定" : venue?.name || "削除済み会場",
+        archived: Boolean(venue?.is_archived),
+        sessions: 0,
+        hanchans: 0,
+        venueFeeTotal: 0,
+        members: new Map()
+      });
+    }
+    return stats.get(key);
+  };
+
+  sessions.forEach((session) => {
+    const key = session.venue_id || "__none__";
+    const stat = ensure(key, session);
+    const players = dailyBySessionId.get(session.id)?.players || [];
+    const memberIds = membersBySession.get(session.id) || players.map((player) => player.memberId);
+    const share = memberIds.length ? num(session.venue_fee_total) / memberIds.length : 0;
+    stat.sessions += 1;
+    stat.hanchans += hanchanCountBySession.get(session.id) || 0;
+    stat.venueFeeTotal = roundTo(stat.venueFeeTotal + num(session.venue_fee_total), 2);
+    players.forEach((player) => {
+      if (!stat.members.has(player.memberId)) stat.members.set(player.memberId, { memberId: player.memberId, displayName: player.displayName, sessions: 0, gamePt: 0, finalPt: 0, chipCount: 0 });
+      const row = stat.members.get(player.memberId);
+      row.sessions += 1;
+      row.gamePt = roundTo(row.gamePt + num(player.totalPt), 2);
+      row.chipCount = roundOne(row.chipCount + num(player.chipCount));
+      const prepaid = num(prepaymentBySessionMember.get(`${session.id}:${player.memberId}`));
+      row.finalPt = roundTo(row.finalPt + num(player.totalPt) - share + prepaid, 2);
+    });
+  });
+
+  return [...stats.values()].map((stat) => ({
+    ...stat,
+    averageVenueFee: stat.sessions ? roundTo(stat.venueFeeTotal / stat.sessions, 2) : 0,
+    memberRows: [...stat.members.values()].sort((a, b) => b.gamePt - a.gamePt || a.displayName.localeCompare(b.displayName, "ja"))
+  })).sort((a, b) => b.sessions - a.sessions || a.name.localeCompare(b.name, "ja"));
+}
+
+function renderVenueAnalyticsSection() {
+  const stats = buildVenueAnalytics();
+  if (!stats.length) return "";
+  if (!stats.some((item) => item.id === venueAnalyticsSelectedId)) venueAnalyticsSelectedId = stats[0].id;
+  const selected = stats.find((item) => item.id === venueAnalyticsSelectedId) || stats[0];
+  const summaryRows = stats.map((item) => `<button type="button" class="venue-analysis-summary ${item.id === selected.id ? "selected" : ""}" data-venue-analysis-id="${item.id}"><strong>${escapeHtml(item.name)}</strong><span>${item.sessions}会 ／ ${item.hanchans}半荘</span><small>場代 ${formatPtPlain(item.venueFeeTotal)}</small></button>`).join("");
+  const playerRows = selected.memberRows.length ? selected.memberRows.map((row, index) => `<tr><td>${index + 1}</td><th>${escapeHtml(row.displayName)}</th><td>${row.sessions}会</td><td>${formatPtMarkup(row.gamePt)}</td><td>${formatPtMarkup(row.finalPt)}</td><td>${formatChipMarkup(row.chipCount)}</td></tr>`).join("") : `<tr><td colspan="6">記録がありません。</td></tr>`;
+  return `<section class="game-section venue-analysis-section"><div class="game-section-heading"><div><p class="game-section-title">会場別集計</p><p class="game-section-note">ゲームptは場代を除外、最終精算ptは場代均等負担と先払いを反映しています。</p></div><span class="all-trend-note">${escapeHtml(getRankingPeriodLabel())}</span></div><div class="venue-analysis-summary-list">${summaryRows}</div><div class="venue-analysis-detail"><div class="venue-analysis-detail-heading"><div><strong>${escapeHtml(selected.name)}</strong>${selected.archived ? `<span>アーカイブ済み</span>` : ""}</div><div><span>対局 ${selected.sessions}会</span><span>半荘 ${selected.hanchans}回</span><span>場代合計 ${formatPtPlain(selected.venueFeeTotal)}</span><span>平均場代 ${formatPtPlain(selected.averageVenueFee)}</span></div></div><div class="venue-player-table-wrap"><table class="venue-player-table"><thead><tr><th>#</th><th>プレイヤー</th><th>対局</th><th>ゲームpt</th><th>最終精算pt</th><th>チップ</th></tr></thead><tbody>${playerRows}</tbody></table></div></div></section>`;
+}
+
+function injectVenueAnalyticsSection() {
+  const page = getPageWorkspace();
+  if (!page || page.querySelector(".venue-analysis-section")) return;
+  const markup = renderVenueAnalyticsSection();
+  if (!markup) return;
+  const target = page.querySelector(".yakuman-ranking-list")?.closest(".game-section") || page.querySelector(".daily-history-section");
+  if (target) target.insertAdjacentHTML("beforebegin", markup);
+  else page.querySelector(".ranking-card")?.insertAdjacentHTML("beforeend", markup);
+  page.querySelectorAll("[data-venue-analysis-id]").forEach((button) => button.addEventListener("click", () => {
+    venueAnalyticsSelectedId = button.dataset.venueAnalysisId;
+    renderRankingPage();
+  }));
+}
+
+const createMatchSessionV29 = createMatchSession;
+const renderCreateSessionViewV29 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  renderCreateSessionViewV29();
+  injectVenueCreateSection();
+};
+
+const renderActiveSessionViewV29 = renderActiveSessionView;
+renderActiveSessionView = function() {
+  renderActiveSessionViewV29();
+  injectActiveSessionVenueSection();
+};
+
+const renderSettingsPageV29 = renderSettingsPage;
+renderSettingsPage = function() {
+  renderSettingsPageV29();
+  injectVenueSettingsSection();
+};
+
+const renderRankingPageV29 = renderRankingPage;
+renderRankingPage = function() {
+  renderRankingPageV29();
+  injectVenueAnalyticsSection();
+};
+
+const renderHistorySessionCardV29 = renderHistorySessionCard;
+renderHistorySessionCard = function(session) {
+  const original = renderHistorySessionCardV29(session);
+  const venueTag = `<span class="history-venue-tag">会場：${escapeHtml(getMatchVenueName(session.venue_id))}</span>`;
+  return original.replace(/(<div class="history-session-meta">[\s\S]*?)(<\/div>\s*<p class="history-session-members">)/, `$1${venueTag}$2`);
+};
+
+const loadMatchSessionsV29 = loadMatchSessions;
+loadMatchSessions = async function() {
+  const result = await loadMatchSessionsV29();
+  try {
+    await loadMatchVenues();
+    await hydrateVenueSessionRows(sessionList);
+    if (activeMatchSessionId) activeMatchSession = sessionList.find((item) => item.id === activeMatchSessionId) || activeMatchSession;
+    if (currentTab === "game") renderMatchPage();
+  } catch (error) {
+    console.warn("会場情報を読み込めませんでした。", error);
+  }
+  return result;
+};
+
+const loadRankingDataV29 = loadRankingData;
+loadRankingData = async function() {
+  const result = await loadRankingDataV29();
+  try {
+    await loadMatchVenues();
+    await hydrateVenueSessionRows(rankingRaw.sessions);
+    const sessionIds = rankingRaw.sessions.map((session) => session.id);
+    if (sessionIds.length) {
+      const { data, error } = await supabaseClient.from("match_session_venue_prepayments").select("session_id, member_id, paid_molly").in("session_id", sessionIds);
+      if (error) throw error;
+      rankingRaw.prepayments = data || [];
+    } else {
+      rankingRaw.prepayments = [];
+    }
+    if (currentTab === "ranking") renderRankingPage();
+  } catch (error) {
+    console.warn("会場別集計の情報を読み込めませんでした。", error);
+  }
+  return result;
+};
+
+const loadHistoryDataV29 = loadHistoryData;
+loadHistoryData = async function() {
+  const result = await loadHistoryDataV29();
+  try {
+    await loadMatchVenues();
+    await hydrateVenueSessionRows(historySessions);
+    if (currentTab === "history") renderHistoryPage();
+  } catch (error) {
+    console.warn("履歴の会場情報を読み込めませんでした。", error);
+  }
+  return result;
+};
+
+const loadGroupsV29 = loadGroups;
+loadGroups = async function() {
+  const result = await loadGroupsV29();
+  try { await loadMatchVenues(); }
+  catch (error) { console.warn("会場情報を読み込めませんでした。", error); }
+  if (currentTab === "settings") renderSettingsPage();
+  return result;
+};
+
+const switchActiveGroupV29 = switchActiveGroup;
+switchActiveGroup = async function(groupId) {
+  resetVenueState();
+  await switchActiveGroupV29(groupId);
+  try { await loadMatchVenues(); }
+  catch (error) { console.warn("会場情報を読み込めませんでした。", error); }
+  if (currentTab === "settings") renderSettingsPage();
+};
+
+const updateAuthUIV29 = updateAuthUI;
+updateAuthUI = async function(session) {
+  await updateAuthUIV29(session);
+  if (!session) resetVenueState();
+  else {
+    try { await loadMatchVenues(); }
+    catch (error) { console.warn("会場情報を読み込めませんでした。", error); }
+  }
+};
+
+const isRelevantRealtimePayloadV29 = isRelevantRealtimePayload;
+isRelevantRealtimePayload = function(payload) {
+  if (payload?.table === "match_venues") return getRealtimeRow(payload).group_id === activeGroupId;
+  return isRelevantRealtimePayloadV29(payload);
+};
+
+const stopRealtimeSubscriptionsV29 = stopRealtimeSubscriptions;
+stopRealtimeSubscriptions = async function() {
+  if (venueRealtimeChannel && supabaseClient) {
+    try { await supabaseClient.removeChannel(venueRealtimeChannel); }
+    catch (error) { console.warn("会場のRealtime接続終了に失敗しました。", error); }
+  }
+  venueRealtimeChannel = null;
+  venueRealtimeGroupId = null;
+  return stopRealtimeSubscriptionsV29();
+};
+
+const setupRealtimeSubscriptionsV29 = setupRealtimeSubscriptions;
+setupRealtimeSubscriptions = async function() {
+  await setupRealtimeSubscriptionsV29();
+  if (!supabaseClient || !currentSession || !activeGroupId) return;
+  if (venueRealtimeChannel && venueRealtimeGroupId === activeGroupId) return;
+  if (venueRealtimeChannel) {
+    try { await supabaseClient.removeChannel(venueRealtimeChannel); } catch (_) {}
+  }
+  const groupId = activeGroupId;
+  venueRealtimeChannel = supabaseClient.channel(`jakuroku-venues-${groupId}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "match_venues", filter: `group_id=eq.${groupId}` }, handleRealtimePayload)
+    .subscribe();
+  venueRealtimeGroupId = groupId;
+};
+
+const fetchGroupExportPayloadV29 = fetchGroupExportPayload;
+fetchGroupExportPayload = async function(groupId) {
+  const payload = await fetchGroupExportPayloadV29(groupId);
+  try {
+    const [venuesResponse, metaRows] = await Promise.all([
+      supabaseClient.from("match_venues").select("id, group_id, name, note, is_archived, created_at, updated_at").eq("group_id", groupId).order("name", { ascending: true }),
+      fetchVenueSessionMeta(payload.sessions.map((session) => session.id))
+    ]);
+    if (venuesResponse.error) throw venuesResponse.error;
+    payload.venues = venuesResponse.data || [];
+    mergeVenueSessionMeta(payload.sessions, metaRows);
+  } catch (error) {
+    console.warn("出力用の会場情報を取得できませんでした。", error);
+    payload.venues = [];
+  }
+  return payload;
+};
+
+const buildExportFilesV29 = buildExportFiles;
+buildExportFiles = function(group, payload) {
+  const result = buildExportFilesV29(group, payload);
+  const venueRows = (payload.venues || []).map((venue) => ({
+    venue_id: venue.id,
+    venue_name: venue.name,
+    note: venue.note || "",
+    status: venue.is_archived ? "アーカイブ" : "利用中",
+    created_at: venue.created_at || "",
+    updated_at: venue.updated_at || ""
+  }));
+  const assignmentRows = (payload.sessions || []).map((session) => ({
+    session_id: session.id,
+    session_date: session.session_date,
+    venue_id: session.venue_id || "",
+    venue_name: getMatchVenueName(session.venue_id, "会場未設定"),
+    venue_fee_total_pt: formatExportNumber(session.venue_fee_total, 2)
+  }));
+  const readmeIndex = result.files.findIndex((file) => file.name === "README.txt");
+  const insertAt = readmeIndex >= 0 ? readmeIndex : result.files.length;
+  result.files.splice(insertAt, 0,
+    { name: "07_会場一覧.csv", content: createCsvText(Object.keys(venueRows[0] || { venue_id: "" }), venueRows) },
+    { name: "08_対局と会場.csv", content: createCsvText(Object.keys(assignmentRows[0] || { session_id: "" }), assignmentRows) }
+  );
+  return result;
+};

@@ -725,3 +725,63 @@ button.history-calendar-cell { cursor: pointer; }
   .result-share-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .result-share-actions #closeResultShareCardButton { grid-column: span 2; }
 }
+
+/* v30: venue management and venue analytics */
+.session-venue-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: center; }
+.session-venue-picker select { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--ink); font: inherit; }
+.session-venue-summary-section { border-color: #d6e4dc; background: linear-gradient(140deg, #fbfefc, #f1f8f4); }
+.session-venue-summary-section .game-section-heading { align-items: flex-start; }
+.venue-current-badge { display: inline-flex; max-width: 160px; padding: 6px 8px; overflow: hidden; border-radius: 999px; background: #f0f3f1; color: var(--muted); font-size: 10px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+.venue-current-badge.set { background: var(--green-soft); color: var(--green); }
+.venue-note-display { margin: 10px 0 0; padding: 9px 10px; border-left: 3px solid #b9d3c4; background: #fff; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.venue-settings-section { display: grid; gap: 13px; }
+.venue-create-form { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.4fr) auto; gap: 9px; align-items: end; padding: 12px; border: 1px solid #dce8e1; border-radius: 13px; background: #fbfefc; }
+.venue-create-form label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 900; }
+.venue-create-form input { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit; }
+.venue-create-form .primary-button { padding: 11px 13px; white-space: nowrap; }
+.venue-settings-list { display: grid; gap: 8px; }
+.venue-settings-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+.venue-settings-row.archived { opacity: .72; background: #f8f9f8; }
+.venue-settings-main { min-width: 0; }
+.venue-settings-main strong { color: var(--ink); font-size: 13px; }
+.venue-settings-main p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.venue-settings-main .venue-empty-note { color: #9aa8a0; }
+.venue-archive-label { display: inline-flex; margin-left: 7px; padding: 3px 6px; border-radius: 999px; background: #eef1ef; color: #6b7770; font-size: 8px; font-weight: 900; vertical-align: middle; }
+.venue-settings-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: 6px; }
+.venue-settings-actions .secondary-button, .venue-settings-actions .danger-outline-button { padding: 7px 9px; font-size: 10px; }
+.venue-archived-details { padding-top: 3px; }
+.venue-archived-details summary { cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 900; }
+.venue-archived-details .venue-settings-list { margin-top: 9px; }
+.venue-analysis-section { margin-top: 20px; }
+.venue-analysis-section .game-section-heading { align-items: flex-start; }
+.venue-analysis-summary-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 8px; margin-top: 13px; }
+.venue-analysis-summary { display: grid; gap: 4px; min-width: 0; padding: 12px; border: 1px solid #d9e6df; border-radius: 13px; background: #fbfefc; color: var(--ink); text-align: left; }
+.venue-analysis-summary.selected { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); background: var(--green-soft); }
+.venue-analysis-summary strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.venue-analysis-summary span, .venue-analysis-summary small { color: var(--muted); font-size: 9px; font-weight: 800; }
+.venue-analysis-detail { margin-top: 13px; padding: 13px; border: 1px solid #d9e6df; border-radius: 15px; background: #fff; }
+.venue-analysis-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.venue-analysis-detail-heading > div:first-child { display: grid; gap: 4px; }
+.venue-analysis-detail-heading > div:first-child strong { color: var(--green); font-size: 15px; }
+.venue-analysis-detail-heading > div:first-child span { display: inline-flex; width: fit-content; padding: 3px 6px; border-radius: 999px; background: #f0f1f0; color: var(--muted); font-size: 8px; font-weight: 900; }
+.venue-analysis-detail-heading > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.venue-analysis-detail-heading > div:last-child span { padding: 5px 7px; border-radius: 7px; background: #f4f8f5; color: var(--muted); font-size: 9px; font-weight: 900; }
+.venue-player-table-wrap { overflow-x: auto; }
+.venue-player-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 10px; }
+.venue-player-table th, .venue-player-table td { padding: 9px 7px; border-bottom: 1px solid #e7eeea; text-align: right; white-space: nowrap; }
+.venue-player-table th:nth-child(2) { text-align: left; color: var(--ink); }
+.venue-player-table thead th { color: var(--muted); font-size: 9px; font-weight: 900; }
+
+@media (max-width: 700px) {
+  .venue-create-form { grid-template-columns: 1fr; }
+  .venue-create-form .primary-button { width: 100%; }
+  .venue-settings-row { flex-direction: column; }
+  .venue-settings-actions { justify-content: flex-start; }
+  .venue-analysis-detail-heading { flex-direction: column; }
+  .venue-analysis-detail-heading > div:last-child { justify-content: flex-start; }
+}
+@media (max-width: 460px) {
+  .session-venue-picker { grid-template-columns: 1fr; }
+  .session-venue-picker .secondary-button, .session-venue-picker .icon-text-button { width: 100%; }
+  .venue-analysis-summary-list { grid-template-columns: 1fr 1fr; }
+}
