@@ -607,3 +607,72 @@ button { cursor: pointer; }
   .template-chooser-row .secondary-button { width: 100%; }
   .template-settings-heading { flex-direction: column; }
 }
+
+/* v26: match calendar and searchable history */
+.history-card { overflow: hidden; }
+.history-result-count { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; padding: 7px 9px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 11px; font-weight: 900; white-space: nowrap; }
+.history-calendar-panel { margin-top: 20px; padding: 16px; border: 1px solid #d6e4dd; border-radius: 17px; background: linear-gradient(145deg, #fbfefc, #f1f8f4); }
+.history-calendar-heading { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; align-items: center; gap: 8px; text-align: center; }
+.history-calendar-heading > div { display: grid; gap: 3px; }
+.history-calendar-heading .game-section-title { margin: 0; }
+.history-calendar-heading strong { color: var(--green); font-size: 18px; }
+.calendar-month-button { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid #cbded4; border-radius: 12px; background: #fff; color: var(--green); font-size: 24px; font-weight: 700; line-height: 1; }
+.history-calendar-actions { display: flex; justify-content: space-between; gap: 10px; margin: 10px 1px 8px; }
+.history-calendar-actions .icon-text-button { padding: 4px 0; font-size: 10px; }
+.history-calendar-weekdays, .history-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.history-calendar-weekdays { margin: 8px 0 4px; }
+.history-calendar-weekdays span { color: var(--muted); font-size: 9px; font-weight: 900; text-align: center; }
+.history-calendar-weekdays span:first-child { color: #b45757; }
+.history-calendar-weekdays span:last-child { color: #3f6e9c; }
+.history-calendar-grid { gap: 4px; }
+.history-calendar-cell { position: relative; display: grid; min-height: 48px; align-content: start; justify-items: center; gap: 2px; padding: 7px 3px 4px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ink); }
+button.history-calendar-cell { cursor: pointer; }
+.history-calendar-cell.blank { pointer-events: none; }
+.history-calendar-cell strong { font-size: 12px; line-height: 1; }
+.history-calendar-cell small { color: var(--green); font-size: 8px; font-weight: 900; line-height: 1.2; text-align: center; }
+.history-calendar-cell.has-session { border-color: #bad7c9; background: #fff; }
+.history-calendar-cell.today strong { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.history-calendar-cell.selected { border-color: var(--green); background: var(--green); color: #fff; box-shadow: 0 4px 10px rgba(13,59,46,.18); }
+.history-calendar-cell.selected small { color: rgba(255,255,255,.82); }
+.history-calendar-dot { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.history-calendar-dot.open { background: #c98a27; }
+.history-calendar-cell.selected .history-calendar-dot { background: #fff; }
+.history-calendar-note { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.history-filter-panel { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: #fff; }
+.history-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.history-filter-heading .game-section-title { margin: 0; }
+.history-filter-heading .icon-text-button { padding: 4px 0; font-size: 10px; }
+.history-period-tabs { display: grid; gap: 7px; margin-top: 14px; }
+.history-period-tabs > span, .history-member-filter > span { color: var(--muted); font-size: 10px; font-weight: 900; }
+.history-period-tabs > div, .history-member-filter > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.history-period-tabs .ranking-filter-button { padding: 8px 10px; font-size: 10px; }
+.history-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.history-filter-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 800; }
+.history-filter-grid select, .history-filter-grid input { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 12px; }
+.history-member-filter { display: grid; gap: 7px; margin-top: 14px; }
+.history-member-choice { border: 1px solid var(--line); border-radius: 999px; padding: 8px 10px; background: #fff; color: var(--ink); font-size: 10px; font-weight: 800; }
+.history-member-choice.active { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.history-results-section { margin-top: 18px; }
+.history-results-section .game-section-heading { margin-bottom: 12px; }
+.history-results-section .game-section-title { margin: 0; }
+.history-session-list { display: grid; gap: 10px; }
+.history-session-card { padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.history-session-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.history-session-heading p { margin: 0 0 4px; color: var(--muted); font-size: 10px; font-weight: 800; }
+.history-session-heading h3 { margin: 0; color: var(--ink); font-size: 15px; }
+.history-session-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.history-session-meta span { padding: 5px 7px; border-radius: 7px; background: #f5f7f6; color: var(--muted); font-size: 9px; font-weight: 800; }
+.history-session-members { display: flex; flex-wrap: wrap; gap: 6px; margin: 11px 0 0; }
+.history-session-members span { padding: 5px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 800; }
+.history-session-note { margin: 11px 0 0; padding: 9px 10px; border-left: 3px solid #c4d8ce; background: #f8fbf9; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.history-session-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.history-session-actions .secondary-button { padding: 8px 10px; font-size: 10px; }
+
+@media (max-width: 460px) {
+  .history-calendar-panel { padding: 13px 10px; }
+  .history-calendar-cell { min-height: 44px; padding-top: 6px; }
+  .history-calendar-cell strong { font-size: 11px; }
+  .history-calendar-cell small { font-size: 7px; }
+  .history-filter-grid { grid-template-columns: 1fr; }
+  .history-filter-heading { align-items: flex-start; flex-direction: column; }
+}

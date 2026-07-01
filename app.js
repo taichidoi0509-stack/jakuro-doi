@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://jomglcttafbhuuhpjmft.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MwxrG4702IXAWU5CAg8QaA_gJOSfIE-";
-const APP_URL = "https://courageous-melomakarona-7bf996.netlify.app";
+const APP_URL = "https://taichidoi0509-stack.github.io/jakuro-doi/";
 
 const MODE_PRESETS = {
   sanma: { label: "三人打ち", playerCount: 3, startingPoints: 35000, uma: [20, 0, -20] },
@@ -3640,3 +3640,372 @@ activityPayloadForRpc = function(name, args, result, before) {
   }
   return activityPayloadForRpcV24(name, args, result, before);
 };
+
+/* v26: match calendar and searchable history */
+let historySessions = [];
+let historySessionMembers = [];
+let historyHanchans = [];
+let historyCalendarMonth = todayInJapan().slice(0, 7);
+let historyPeriodMode = "month";
+let historySelectedDate = "";
+let historyFilterMode = "all";
+let historyFilterRate = "all";
+let historyFilterStatus = "all";
+let historyFilterMemberIds = [];
+let historyKeyword = "";
+let historyMessage = "";
+
+function ensureHistoryNavigation() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav || nav.querySelector('[data-tab="history"]')) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "nav-item";
+  button.dataset.tab = "history";
+  button.innerHTML = `<span>歴</span><small>履歴</small>`;
+  const rankingButton = nav.querySelector('[data-tab="ranking"]');
+  nav.insertBefore(button, rankingButton || null);
+  button.addEventListener("click", () => { void switchTab("history"); });
+  navItems = document.querySelectorAll(".nav-item");
+}
+
+function historyMonthParts(month = historyCalendarMonth) {
+  const [yearText, monthText] = String(month || "").split("-");
+  const year = Number(yearText);
+  const monthNumber = Number(monthText);
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+    const today = todayInJapan();
+    return { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) };
+  }
+  return { year, month: monthNumber };
+}
+
+function historyMonthLabel(month = historyCalendarMonth) {
+  const parts = historyMonthParts(month);
+  return `${parts.year}年${parts.month}月`;
+}
+
+function shiftHistoryCalendarMonth(offset) {
+  const { year, month } = historyMonthParts();
+  const value = new Date(Date.UTC(year, month - 1 + Number(offset || 0), 1));
+  historyCalendarMonth = `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`;
+  historySelectedDate = "";
+  renderHistoryPage();
+}
+
+function getHistorySessionMemberIds(sessionId) {
+  return historySessionMembers
+    .filter((member) => member.session_id === sessionId)
+    .map((member) => member.member_id);
+}
+
+function getHistoryParticipants(sessionId) {
+  const memberIds = getHistorySessionMemberIds(sessionId);
+  return memberIds.map((memberId) => getMemberName(memberId));
+}
+
+function getHistoryHanchanCount(sessionId) {
+  return historyHanchans.filter((hanchan) => hanchan.session_id === sessionId).length;
+}
+
+function getHistoryRateOptions() {
+  return [...new Set(historySessions.map((session) => String(session.rate_label || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+function historyMatchesSharedFilters(session) {
+  if (historyFilterMode !== "all" && session.game_mode !== historyFilterMode) return false;
+  if (historyFilterRate !== "all" && String(session.rate_label || "") !== historyFilterRate) return false;
+  if (historyFilterStatus !== "all" && session.status !== historyFilterStatus) return false;
+
+  const memberIds = getHistorySessionMemberIds(session.id);
+  if (historyFilterMemberIds.length && !historyFilterMemberIds.every((memberId) => memberIds.includes(memberId))) return false;
+
+  const keyword = String(historyKeyword || "").trim().toLocaleLowerCase("ja");
+  if (keyword) {
+    const haystack = [
+      session.session_date,
+      getModeLabel(session.game_mode),
+      session.rate_label || "",
+      session.notes || "",
+      session.status === "settled" ? "精算済み" : "進行中",
+      ...getHistoryParticipants(session.id)
+    ].join(" ").toLocaleLowerCase("ja");
+    if (!haystack.includes(keyword)) return false;
+  }
+  return true;
+}
+
+function historyMatchesPeriod(session) {
+  if (historyPeriodMode === "all") return true;
+  if (historyPeriodMode === "year") return String(session.session_date || "").startsWith(`${historyMonthParts().year}-`);
+  return String(session.session_date || "").startsWith(historyCalendarMonth);
+}
+
+function getFilteredHistorySessions(options = {}) {
+  const { ignoreSelectedDate = false, ignorePeriod = false } = options;
+  return historySessions.filter((session) => {
+    if (!historyMatchesSharedFilters(session)) return false;
+    if (!ignorePeriod && !historyMatchesPeriod(session)) return false;
+    if (!ignoreSelectedDate && historySelectedDate && session.session_date !== historySelectedDate) return false;
+    return true;
+  });
+}
+
+function buildHistoryCalendarHtml() {
+  const { year, month } = historyMonthParts();
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const calendarSessions = getFilteredHistorySessions({ ignoreSelectedDate: true, ignorePeriod: true })
+    .filter((session) => String(session.session_date || "").startsWith(historyCalendarMonth));
+  const sessionsByDate = new Map();
+  calendarSessions.forEach((session) => {
+    const current = sessionsByDate.get(session.session_date) || [];
+    current.push(session);
+    sessionsByDate.set(session.session_date, current);
+  });
+  const today = todayInJapan();
+  const cells = [];
+  for (let index = 0; index < firstWeekday; index += 1) cells.push(`<div class="history-calendar-cell blank" aria-hidden="true"></div>`);
+  for (let day = 1; day <= lastDay; day += 1) {
+    const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const sessions = sessionsByDate.get(dateKey) || [];
+    const settledCount = sessions.filter((session) => session.status === "settled").length;
+    const classes = ["history-calendar-cell"];
+    if (sessions.length) classes.push("has-session");
+    if (dateKey === today) classes.push("today");
+    if (dateKey === historySelectedDate) classes.push("selected");
+    const meta = sessions.length
+      ? `<small>${sessions.length}会${settledCount === sessions.length ? "" : "・進行中"}</small><i class="history-calendar-dot ${settledCount === sessions.length ? "settled" : "open"}"></i>`
+      : "";
+    cells.push(`<button type="button" class="${classes.join(" ")}" data-history-date="${dateKey}"><strong>${day}</strong>${meta}</button>`);
+  }
+  while (cells.length % 7) cells.push(`<div class="history-calendar-cell blank" aria-hidden="true"></div>`);
+  return `<section class="history-calendar-panel">
+    <div class="history-calendar-heading">
+      <button type="button" class="calendar-month-button" data-history-calendar-shift="-1" aria-label="前の月">‹</button>
+      <div><p class="game-section-title">対局カレンダー</p><strong>${historyMonthLabel()}</strong></div>
+      <button type="button" class="calendar-month-button" data-history-calendar-shift="1" aria-label="次の月">›</button>
+    </div>
+    <div class="history-calendar-actions"><button type="button" class="icon-text-button" data-history-calendar-today>今月へ戻る</button>${historySelectedDate ? `<button type="button" class="icon-text-button" data-history-clear-date>日付指定を解除</button>` : ""}</div>
+    <div class="history-calendar-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="history-calendar-grid">${cells.join("")}</div>
+    <p class="history-calendar-note">対局がある日を押すと、その日の記録だけを表示します。</p>
+  </section>`;
+}
+
+function renderHistorySessionCard(session) {
+  const participants = getHistoryParticipants(session.id);
+  const hanchanCount = getHistoryHanchanCount(session.id);
+  const statusLabel = session.status === "settled" ? "精算済み" : "進行中";
+  const statusClass = session.status === "settled" ? "settled" : "open";
+  return `<article class="history-session-card">
+    <div class="history-session-heading">
+      <div><p>${escapeHtml(formatDate(session.session_date))}</p><h3>${escapeHtml(getModeLabel(session.game_mode))}</h3></div>
+      <span class="session-status ${statusClass}">${statusLabel}</span>
+    </div>
+    <div class="history-session-meta">
+      <span>${escapeHtml(session.rate_label || "レート未設定")}（×${formatNumber(session.rate_multiplier, 0)}）</span>
+      <span>半荘 ${hanchanCount}回</span>
+      <span>参加 ${participants.length}人</span>
+    </div>
+    <p class="history-session-members">${participants.length ? participants.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : "参加者情報がありません。"}</p>
+    ${session.notes ? `<p class="history-session-note">${escapeHtml(session.notes)}</p>` : ""}
+    <div class="history-session-actions"><button type="button" class="secondary-button" data-open-history-session-id="${session.id}">記録を開く</button></div>
+  </article>`;
+}
+
+function renderHistoryPage() {
+  const page = getPageWorkspace();
+  if (!currentSession) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MATCH HISTORY</p><h2>ログインが必要です</h2><p class="workspace-description">対局カレンダーと履歴検索は、ログイン後に利用できます。</p><button id="historyBackHomeButton" class="primary-button" type="button">ホームへ戻る</button></section>`;
+    document.getElementById("historyBackHomeButton")?.addEventListener("click", () => { void switchTab("home"); });
+    return;
+  }
+  if (!getActiveGroup()) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MATCH HISTORY</p><h2>先にグループを作成してください</h2><button id="historyBackHomeButton" class="primary-button" type="button">ホームへ戻る</button></section>`;
+    document.getElementById("historyBackHomeButton")?.addEventListener("click", () => { void switchTab("home"); });
+    return;
+  }
+  const rates = getHistoryRateOptions();
+  const filtered = getFilteredHistorySessions();
+  const periodLabel = historyPeriodMode === "all" ? "全期間" : historyPeriodMode === "year" ? `${historyMonthParts().year}年` : historyMonthLabel();
+  const selectedDateLabel = historySelectedDate ? formatDate(historySelectedDate) : "";
+  page.innerHTML = `<section class="game-card history-card">
+    <div class="game-card-heading"><div><p class="eyebrow">MATCH HISTORY</p><h2>対局カレンダー・履歴検索</h2></div><span class="history-result-count">${filtered.length}件</span></div>
+    <p class="game-description">対局日、参加者、形式、レートで記録を絞り込めます。複数の参加者を選ぶと、全員が参加した麻雀会だけを表示します。</p>
+    ${historyMessage ? `<p class="settings-notice">${escapeHtml(historyMessage)}</p>` : ""}
+    ${buildHistoryCalendarHtml()}
+    <section class="history-filter-panel">
+      <div class="history-filter-heading"><p class="game-section-title">履歴を絞り込む</p><button type="button" class="icon-text-button" data-reset-history-filters>条件をリセット</button></div>
+      <div class="history-period-tabs"><span>表示期間</span><div><button type="button" class="ranking-filter-button ${historyPeriodMode === "all" ? "active" : ""}" data-history-period="all">全期間</button><button type="button" class="ranking-filter-button ${historyPeriodMode === "year" ? "active" : ""}" data-history-period="year">${historyMonthParts().year}年</button><button type="button" class="ranking-filter-button ${historyPeriodMode === "month" ? "active" : ""}" data-history-period="month">${historyMonthLabel()}</button></div></div>
+      <div class="history-filter-grid">
+        <label>形式<select id="historyModeFilter"><option value="all">すべて</option><option value="sanma" ${historyFilterMode === "sanma" ? "selected" : ""}>三人打ち</option><option value="yonin_sanma" ${historyFilterMode === "yonin_sanma" ? "selected" : ""}>四人三打ち</option><option value="yonma" ${historyFilterMode === "yonma" ? "selected" : ""}>四人打ち</option></select></label>
+        <label>レート<select id="historyRateFilter"><option value="all">すべて</option>${rates.map((rate) => `<option value="${escapeHtml(rate)}" ${historyFilterRate === rate ? "selected" : ""}>${escapeHtml(rate)}</option>`).join("")}</select></label>
+        <label>状態<select id="historyStatusFilter"><option value="all">すべて</option><option value="settled" ${historyFilterStatus === "settled" ? "selected" : ""}>精算済み</option><option value="open" ${historyFilterStatus === "open" ? "selected" : ""}>進行中</option></select></label>
+        <label>キーワード<input id="historyKeywordFilter" type="search" value="${escapeHtml(historyKeyword)}" placeholder="メモ・参加者・レートで検索"></label>
+      </div>
+      <div class="history-member-filter"><span>参加者</span><div>${activeGroupMembers.map((member) => `<button type="button" class="history-member-choice ${historyFilterMemberIds.includes(member.id) ? "active" : ""}" data-history-member-id="${member.id}">${escapeHtml(member.display_name)}</button>`).join("") || `<small>メンバーがいません。</small>`}</div></div>
+    </section>
+    <section class="history-results-section"><div class="game-section-heading"><div><p class="game-section-title">${selectedDateLabel ? `${selectedDateLabel}の記録` : `${periodLabel}の記録`}</p><p class="game-section-note">${filtered.length}件の麻雀会</p></div></div><div class="history-session-list">${filtered.length ? filtered.map(renderHistorySessionCard).join("") : `<p class="game-section-note">条件に一致する記録はありません。</p>`}</div></section>
+  </section>`;
+  bindHistoryPageEvents();
+}
+
+function bindHistoryPageEvents() {
+  document.querySelectorAll("[data-history-calendar-shift]").forEach((button) => button.addEventListener("click", () => shiftHistoryCalendarMonth(Number(button.dataset.historyCalendarShift))));
+  document.querySelector("[data-history-calendar-today]")?.addEventListener("click", () => {
+    historyCalendarMonth = todayInJapan().slice(0, 7);
+    historySelectedDate = "";
+    renderHistoryPage();
+  });
+  document.querySelector("[data-history-clear-date]")?.addEventListener("click", () => {
+    historySelectedDate = "";
+    renderHistoryPage();
+  });
+  document.querySelectorAll("[data-history-date]").forEach((button) => button.addEventListener("click", () => {
+    const date = button.dataset.historyDate;
+    historySelectedDate = historySelectedDate === date ? "" : date;
+    renderHistoryPage();
+  }));
+  document.querySelectorAll("[data-history-period]").forEach((button) => button.addEventListener("click", () => {
+    historyPeriodMode = button.dataset.historyPeriod;
+    historySelectedDate = "";
+    renderHistoryPage();
+  }));
+  document.getElementById("historyModeFilter")?.addEventListener("change", (event) => { historyFilterMode = event.target.value; historySelectedDate = ""; renderHistoryPage(); });
+  document.getElementById("historyRateFilter")?.addEventListener("change", (event) => { historyFilterRate = event.target.value; historySelectedDate = ""; renderHistoryPage(); });
+  document.getElementById("historyStatusFilter")?.addEventListener("change", (event) => { historyFilterStatus = event.target.value; historySelectedDate = ""; renderHistoryPage(); });
+  document.getElementById("historyKeywordFilter")?.addEventListener("input", (event) => { historyKeyword = event.target.value; historySelectedDate = ""; renderHistoryPage(); });
+  document.querySelectorAll("[data-history-member-id]").forEach((button) => button.addEventListener("click", () => {
+    const memberId = button.dataset.historyMemberId;
+    historyFilterMemberIds = historyFilterMemberIds.includes(memberId)
+      ? historyFilterMemberIds.filter((id) => id !== memberId)
+      : [...historyFilterMemberIds, memberId];
+    historySelectedDate = "";
+    renderHistoryPage();
+  }));
+  document.querySelector("[data-reset-history-filters]")?.addEventListener("click", () => {
+    historyPeriodMode = "month";
+    historySelectedDate = "";
+    historyFilterMode = "all";
+    historyFilterRate = "all";
+    historyFilterStatus = "all";
+    historyFilterMemberIds = [];
+    historyKeyword = "";
+    historyMessage = "検索条件をリセットしました。";
+    renderHistoryPage();
+  });
+  document.querySelectorAll("[data-open-history-session-id]").forEach((button) => button.addEventListener("click", async () => {
+    const sessionId = button.dataset.openHistorySessionId;
+    if (!sessionId) return;
+    activeMatchSessionId = sessionId;
+    localStorage.setItem("jakuroku-active-match-session-id", sessionId);
+    resetMatchViewState();
+    await switchTab("game");
+  }));
+}
+
+async function loadHistoryData() {
+  const page = getPageWorkspace();
+  if (!currentSession || !activeGroupId) {
+    renderHistoryPage();
+    return;
+  }
+  page.innerHTML = `<section class="workspace-card loading-card">対局履歴を読み込み中...</section>`;
+  try {
+    const { data: sessions, error: sessionsError } = await supabaseClient
+      .from("match_sessions")
+      .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, notes, status, created_at")
+      .eq("group_id", activeGroupId)
+      .is("deleted_at", null)
+      .order("session_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (sessionsError) throw sessionsError;
+    historySessions = sessions || [];
+    const sessionIds = historySessions.map((session) => session.id);
+    if (!sessionIds.length) {
+      historySessionMembers = [];
+      historyHanchans = [];
+      renderHistoryPage();
+      return;
+    }
+    const [membersResponse, hanchansResponse] = await Promise.all([
+      supabaseClient.from("match_session_members").select("session_id, member_id").in("session_id", sessionIds),
+      supabaseClient.from("match_hanchans").select("id, session_id, sequence_no").in("session_id", sessionIds)
+    ]);
+    if (membersResponse.error) throw membersResponse.error;
+    if (hanchansResponse.error) throw hanchansResponse.error;
+    historySessionMembers = membersResponse.data || [];
+    historyHanchans = hanchansResponse.data || [];
+    renderHistoryPage();
+  } catch (error) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MATCH HISTORY</p><h2>対局履歴を読み込めませんでした</h2><p class="workspace-description">${escapeHtml(error.message || "通信状態を確認してください。")}</p><button id="retryHistoryButton" class="primary-button" type="button">再読み込み</button></section>`;
+    document.getElementById("retryHistoryButton")?.addEventListener("click", () => { void loadHistoryData(); });
+  }
+}
+
+const switchTabV25 = switchTab;
+switchTab = async function(tab) {
+  if (tab === "history") {
+    currentTab = tab;
+    navItems.forEach((item) => item.classList.toggle("active", item.dataset.tab === tab));
+    heroCard.hidden = true;
+    roadmapSection.hidden = true;
+    getGroupWorkspace().hidden = true;
+    getPageWorkspace().hidden = false;
+    await loadHistoryData();
+    return;
+  }
+  return switchTabV25(tab);
+};
+
+const recordIdsForRealtimeV25 = recordIdsForRealtime;
+recordIdsForRealtime = function() {
+  const ids = recordIdsForRealtimeV25();
+  historySessions.forEach((session) => ids.add(session.id));
+  return ids;
+};
+
+const hanchanIdsForRealtimeV25 = hanchanIdsForRealtime;
+hanchanIdsForRealtime = function() {
+  const ids = hanchanIdsForRealtimeV25();
+  historyHanchans.forEach((hanchan) => ids.add(hanchan.id));
+  return ids;
+};
+
+const refreshCurrentViewFromRealtimeV25 = refreshCurrentViewFromRealtime;
+refreshCurrentViewFromRealtime = async function(force = false) {
+  const result = await refreshCurrentViewFromRealtimeV25(force);
+  if (currentTab === "history" && currentSession && activeGroupId) {
+    await loadHistoryData();
+  }
+  return result;
+};
+
+const switchActiveGroupV25 = switchActiveGroup;
+switchActiveGroup = async function(groupId) {
+  await switchActiveGroupV25(groupId);
+  historySessions = [];
+  historySessionMembers = [];
+  historyHanchans = [];
+  historySelectedDate = "";
+  historyFilterMemberIds = [];
+  if (currentTab === "history") await loadHistoryData();
+};
+
+const updateAuthUIV25 = updateAuthUI;
+updateAuthUI = async function(session) {
+  await updateAuthUIV25(session);
+  if (!session) {
+    historySessions = [];
+    historySessionMembers = [];
+    historyHanchans = [];
+    historySelectedDate = "";
+    historyFilterMemberIds = [];
+  } else if (currentTab === "history") {
+    await loadHistoryData();
+  }
+};
+
+ensureHistoryNavigation();
