@@ -5059,3 +5059,230 @@ buildExportFiles = function(group, payload) {
   );
   return result;
 };
+
+
+// v31: JSON backup restore UI
+let backupRestoreState = {
+  backup: null,
+  fileName: "",
+  sourceMembers: [],
+  memberMap: {},
+  preview: null,
+  message: "",
+  isError: false,
+  busy: false
+};
+
+function getBackupRestoreTables(backup) {
+  return backup && typeof backup === "object" && backup.tables && typeof backup.tables === "object" ? backup.tables : {};
+}
+
+function getBackupRestoreSourceMembers(backup) {
+  const tables = getBackupRestoreTables(backup);
+  const memberRows = Array.isArray(tables.members) ? tables.members : [];
+  const sessionMemberRows = Array.isArray(tables.sessionMembers) ? tables.sessionMembers : [];
+  const namesById = new Map(memberRows.map((member) => [String(member.id || ""), String(member.display_name || "不明なメンバー")]));
+  const ids = [...new Set(sessionMemberRows.map((row) => String(row.member_id || "")).filter(Boolean))];
+  return ids.map((id) => ({ id, displayName: namesById.get(id) || "不明なメンバー" }));
+}
+
+function normalizeRestoreName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("ja-JP");
+}
+
+function buildDefaultBackupMemberMap(sourceMembers) {
+  const targetIds = new Set(activeGroupMembers.map((member) => String(member.id)));
+  const targetsByName = new Map();
+  activeGroupMembers.forEach((member) => {
+    const key = normalizeRestoreName(member.display_name);
+    if (key && !targetsByName.has(key)) targetsByName.set(key, String(member.id));
+  });
+  return Object.fromEntries(sourceMembers.map((source) => {
+    const direct = targetIds.has(source.id) ? source.id : "";
+    const byName = targetsByName.get(normalizeRestoreName(source.displayName)) || "";
+    return [source.id, direct || byName];
+  }));
+}
+
+function backupRestoreError(message) {
+  backupRestoreState.preview = null;
+  backupRestoreState.message = message;
+  backupRestoreState.isError = true;
+  backupRestoreState.busy = false;
+}
+
+async function previewBackupRestore() {
+  if (!backupRestoreState.backup || !activeGroupId) return;
+  backupRestoreState.busy = true;
+  backupRestoreState.message = "バックアップ内容を確認しています…";
+  backupRestoreState.isError = false;
+  renderSettingsPage();
+  try {
+    const { data, error } = await supabaseClient.rpc("preview_jakuroku_backup", {
+      p_target_group_id: activeGroupId,
+      p_backup: backupRestoreState.backup,
+      p_member_map: backupRestoreState.memberMap
+    });
+    if (error) throw error;
+    backupRestoreState.preview = data || null;
+    backupRestoreState.message = "内容を確認しました。復元前に対象と対応付けを確認してください。";
+    backupRestoreState.isError = false;
+  } catch (error) {
+    backupRestoreError(error.message || "バックアップ内容を確認できませんでした。");
+    renderSettingsPage();
+    return;
+  }
+  backupRestoreState.busy = false;
+  renderSettingsPage();
+}
+
+async function readBackupRestoreFile(file) {
+  if (!file) return;
+  backupRestoreState.busy = true;
+  backupRestoreState.message = "JSONファイルを読み込んでいます…";
+  backupRestoreState.isError = false;
+  renderSettingsPage();
+  try {
+    if (file.size > 15 * 1024 * 1024) throw new Error("JSONバックアップは15MB以下のファイルを選択してください。");
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    if (!backup || typeof backup !== "object" || !String(backup.format || "").startsWith("jakuroku-backup-v")) {
+      throw new Error("雀録のJSONバックアップファイルを選択してください。");
+    }
+    const sourceMembers = getBackupRestoreSourceMembers(backup);
+    if (!sourceMembers.length) throw new Error("バックアップ内に復元対象の参加メンバーが見つかりません。");
+    backupRestoreState.backup = backup;
+    backupRestoreState.fileName = file.name;
+    backupRestoreState.sourceMembers = sourceMembers;
+    backupRestoreState.memberMap = buildDefaultBackupMemberMap(sourceMembers);
+    backupRestoreState.preview = null;
+    backupRestoreState.busy = false;
+    await previewBackupRestore();
+  } catch (error) {
+    backupRestoreState.backup = null;
+    backupRestoreState.fileName = "";
+    backupRestoreState.sourceMembers = [];
+    backupRestoreState.memberMap = {};
+    backupRestoreError(error.message || "JSONファイルを読み込めませんでした。");
+    renderSettingsPage();
+  }
+}
+
+function clearBackupRestoreState() {
+  backupRestoreState = {
+    backup: null,
+    fileName: "",
+    sourceMembers: [],
+    memberMap: {},
+    preview: null,
+    message: "",
+    isError: false,
+    busy: false
+  };
+  renderSettingsPage();
+}
+
+function renderBackupRestoreSection() {
+  const hasBackup = Boolean(backupRestoreState.backup);
+  const preview = backupRestoreState.preview || {};
+  const unresolvedCount = Number(preview.unresolved_member_count || 0);
+  const newSessionCount = Number(preview.new_session_count || 0);
+  const canRestore = hasBackup && Boolean(backupRestoreState.preview) && !backupRestoreState.busy && unresolvedCount === 0 && newSessionCount > 0;
+  const sourceName = escapeHtml(String(backupRestoreState.backup?.group?.name || preview.source_group_name || "不明なグループ"));
+  const exportedAt = backupRestoreState.backup?.exported_at ? new Date(backupRestoreState.backup.exported_at).toLocaleString("ja-JP") : "不明";
+  const status = backupRestoreState.message ? `<p class="backup-restore-message ${backupRestoreState.isError ? "error" : ""}">${escapeHtml(backupRestoreState.message)}</p>` : "";
+  const memberRows = hasBackup ? backupRestoreState.sourceMembers.map((source) => {
+    const selected = String(backupRestoreState.memberMap[source.id] || "");
+    const options = [`<option value="">対応先を選択</option>`, ...activeGroupMembers.map((target) => `<option value="${escapeHtml(target.id)}" ${selected === String(target.id) ? "selected" : ""}>${escapeHtml(target.display_name)}${target.user_id ? "" : "（ゲスト）"}</option>`)].join("");
+    return `<label class="backup-member-map-row"><span><strong>${escapeHtml(source.displayName)}</strong><small>バックアップ側</small></span><select data-backup-member-map-id="${escapeHtml(source.id)}">${options}</select></label>`;
+  }).join("") : "";
+  const previewBlock = hasBackup ? `
+    <div class="backup-restore-preview">
+      <div class="backup-restore-preview-grid">
+        <div><span>バックアップ元</span><strong>${sourceName}</strong></div>
+        <div><span>出力日時</span><strong>${escapeHtml(exportedAt)}</strong></div>
+        <div><span>日次記録</span><strong>${Number(preview.session_count || 0)}日分</strong></div>
+        <div><span>新規復元</span><strong>${newSessionCount}日分</strong></div>
+        <div><span>重複のため除外</span><strong>${Number(preview.already_imported_session_count || 0)}日分</strong></div>
+        <div><span>未対応メンバー</span><strong class="${unresolvedCount ? "is-negative" : "is-positive"}">${unresolvedCount}人</strong></div>
+      </div>
+      <details class="backup-member-map-details" ${unresolvedCount ? "open" : ""}>
+        <summary>参加メンバーの対応付け（${backupRestoreState.sourceMembers.length}人）</summary>
+        <p>バックアップ側の参加者を、現在のグループ内メンバーへ対応付けます。同じグループを復元する場合は通常そのままで問題ありません。</p>
+        <div class="backup-member-map-list">${memberRows}</div>
+        <button id="backupRestoreRecheckButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>対応付けを再確認</button>
+      </details>
+      ${unresolvedCount ? `<p class="backup-restore-warning">未対応の参加者がいるため、復元はまだ実行できません。</p>` : ""}
+      ${newSessionCount === 0 && backupRestoreState.preview ? `<p class="backup-restore-warning">新たに復元する日次記録はありません。すでに復元済み、または同じグループ内に存在する記録です。</p>` : ""}
+      <div class="backup-restore-actions"><button id="backupRestoreExecuteButton" class="primary-button" type="button" ${canRestore ? "" : "disabled"}>${backupRestoreState.busy ? "処理中…" : "この内容で復元"}</button><button id="backupRestoreClearButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>選択を解除</button></div>
+    </div>` : "";
+
+  return `<section class="settings-section backup-restore-section">
+    <div class="settings-section-heading"><div><p class="eyebrow">DATA RESTORE</p><h3>JSONバックアップを復元</h3></div>${hasBackup ? `<span class="member-role-badge">${escapeHtml(backupRestoreState.fileName)}</span>` : ""}</div>
+    <p class="settings-help">既存記録は上書きしません。同じバックアップをもう一度選んでも、すでに復元済みの日次記録は重複作成されません。現在は対局・半荘・チップ・場代・飛ばし点・役満を復元します。</p>
+    <label class="backup-file-input"><span>JSONバックアップを選択</span><input id="backupRestoreFileInput" type="file" accept="application/json,.json" ${backupRestoreState.busy ? "disabled" : ""}></label>
+    ${status}
+    ${previewBlock}
+  </section>`;
+}
+
+function injectBackupRestoreSection() {
+  const page = getPageWorkspace();
+  if (!page || page.querySelector(".backup-restore-section")) return;
+  const exportSection = page.querySelector(".data-export-section");
+  if (exportSection) exportSection.insertAdjacentHTML("afterend", renderBackupRestoreSection());
+  else page.querySelector(".settings-card")?.insertAdjacentHTML("beforeend", renderBackupRestoreSection());
+
+  document.getElementById("backupRestoreFileInput")?.addEventListener("change", (event) => { void readBackupRestoreFile(event.target.files?.[0]); });
+  document.querySelectorAll("[data-backup-member-map-id]").forEach((select) => {
+    select.addEventListener("change", () => {
+      backupRestoreState.memberMap[select.dataset.backupMemberMapId] = select.value;
+      backupRestoreState.preview = null;
+      backupRestoreState.message = "対応付けを変更しました。「対応付けを再確認」を押してください。";
+      backupRestoreState.isError = false;
+      renderSettingsPage();
+    });
+  });
+  document.getElementById("backupRestoreRecheckButton")?.addEventListener("click", () => { void previewBackupRestore(); });
+  document.getElementById("backupRestoreClearButton")?.addEventListener("click", clearBackupRestoreState);
+  document.getElementById("backupRestoreExecuteButton")?.addEventListener("click", async () => {
+    const preview = backupRestoreState.preview;
+    if (!preview || !backupRestoreState.backup || Number(preview.unresolved_member_count || 0) > 0 || Number(preview.new_session_count || 0) <= 0) return;
+    const confirmed = window.confirm(`${preview.source_group_name || "バックアップ"}から${preview.new_session_count}日分・${preview.session_count || 0}日中の新規記録を復元します。\n\n既存データは上書きされません。実行しますか？`);
+    if (!confirmed) return;
+    backupRestoreState.busy = true;
+    backupRestoreState.message = "バックアップを復元しています…";
+    backupRestoreState.isError = false;
+    renderSettingsPage();
+    try {
+      markLocalRealtimeWrite();
+      const { data, error } = await supabaseClient.rpc("restore_jakuroku_backup", {
+        p_target_group_id: activeGroupId,
+        p_backup: backupRestoreState.backup,
+        p_member_map: backupRestoreState.memberMap,
+        p_options: { source: "settings_json_restore", file_name: backupRestoreState.fileName }
+      });
+      if (error) throw error;
+      backupRestoreState.message = data?.message || "バックアップを復元しました。";
+      backupRestoreState.isError = false;
+      backupRestoreState.busy = false;
+      await Promise.all([
+        loadMatchSessions(),
+        loadRankingData(),
+        loadHistoryData(),
+        loadExportPeriodOptions()
+      ]);
+      await loadActivityLogs().catch(() => {});
+      renderSettingsPage();
+    } catch (error) {
+      backupRestoreError(error.message || "バックアップを復元できませんでした。");
+      renderSettingsPage();
+    }
+  });
+}
+
+const renderSettingsPageV30 = renderSettingsPage;
+renderSettingsPage = function() {
+  renderSettingsPageV30();
+  injectBackupRestoreSection();
+};

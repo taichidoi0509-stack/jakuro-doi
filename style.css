@@ -785,3 +785,58 @@ button.history-calendar-cell { cursor: pointer; }
   .session-venue-picker .secondary-button, .session-venue-picker .icon-text-button { width: 100%; }
   .venue-analysis-summary-list { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* v31: JSON backup restore */
+.backup-restore-section {
+  border-top: 1px solid var(--border, rgba(255,255,255,.12));
+}
+.backup-file-input {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line, rgba(255,255,255,.25));
+  border-radius: 14px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+.backup-file-input span { font-weight: 700; }
+.backup-file-input input { max-width: 54%; font-size: 12px; }
+.backup-restore-message, .backup-restore-warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(66, 153, 225, .12);
+  line-height: 1.6;
+}
+.backup-restore-message.error, .backup-restore-warning { background: rgba(239, 68, 68, .12); }
+.backup-restore-preview { margin-top: 14px; }
+.backup-restore-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.backup-restore-preview-grid > div {
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--surface-soft, rgba(255,255,255,.045));
+}
+.backup-restore-preview-grid span { display: block; font-size: 11px; opacity: .72; }
+.backup-restore-preview-grid strong { display: block; margin-top: 3px; font-size: 14px; }
+.backup-member-map-details { margin-top: 14px; }
+.backup-member-map-details summary { cursor: pointer; font-weight: 800; }
+.backup-member-map-details > p { font-size: 12px; line-height: 1.6; opacity: .8; }
+.backup-member-map-list { display: grid; gap: 8px; margin: 10px 0; }
+.backup-member-map-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,.8fr); gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; background: var(--surface-soft, rgba(255,255,255,.045)); }
+.backup-member-map-row span { min-width: 0; }
+.backup-member-map-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backup-member-map-row small { display: block; margin-top: 2px; font-size: 11px; opacity: .65; }
+.backup-member-map-row select { width: 100%; }
+.backup-restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+@media (max-width: 560px) {
+  .backup-file-input { align-items: flex-start; flex-direction: column; }
+  .backup-file-input input { max-width: 100%; width: 100%; }
+  .backup-member-map-row { grid-template-columns: 1fr; }
+}
