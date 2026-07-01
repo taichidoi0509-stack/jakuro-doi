@@ -840,3 +840,31 @@ button.history-calendar-cell { cursor: pointer; }
   .backup-file-input input { max-width: 100%; width: 100%; }
   .backup-member-map-row { grid-template-columns: 1fr; }
 }
+
+/* v32: extended JSON backup v2 */
+.backup-restore-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.backup-restore-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #dbe7df;
+  border-radius: 12px;
+  background: #fbfefc;
+  cursor: pointer;
+}
+.backup-restore-option:hover { border-color: #aac8b4; }
+.backup-restore-option input { flex: 0 0 auto; width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--green); }
+.backup-restore-option span { display: grid; min-width: 0; gap: 4px; }
+.backup-restore-option strong { color: var(--ink); font-size: 11px; line-height: 1.35; }
+.backup-restore-option small { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.backup-restore-option.is-disabled { opacity: .55; cursor: default; }
+@media (max-width: 620px) {
+  .backup-restore-option-grid { grid-template-columns: 1fr; }
+}

@@ -5286,3 +5286,469 @@ renderSettingsPage = function() {
   renderSettingsPageV30();
   injectBackupRestoreSection();
 };
+
+/* v32: extended JSON backup v2 */
+function isBackupV2(backup = backupRestoreState.backup) {
+  return String(backup?.format || "") === "jakuroku-backup-v2";
+}
+
+function defaultBackupRestoreOptions(backup = backupRestoreState.backup) {
+  if (!isBackupV2(backup)) {
+    return {
+      include_matches: true,
+      include_venues: false,
+      include_templates: false,
+      include_debts: false,
+      include_activity_logs: false,
+      include_trash: false
+    };
+  }
+  return {
+    include_matches: true,
+    include_venues: true,
+    include_templates: true,
+    include_debts: true,
+    include_activity_logs: false,
+    include_trash: false
+  };
+}
+
+function getBackupRestoreOptions() {
+  const defaults = defaultBackupRestoreOptions();
+  const source = backupRestoreState.options || {};
+  return Object.fromEntries(Object.keys(defaults).map((key) => [key, Boolean(source[key] ?? defaults[key])]));
+}
+
+function getBackupRestoreSourceMembersV2(backup) {
+  const tables = getBackupRestoreTables(backup);
+  const rows = [];
+  const pushId = (value) => {
+    const id = String(value || "");
+    if (id) rows.push(id);
+  };
+  (Array.isArray(tables.sessionMembers) ? tables.sessionMembers : []).forEach((row) => pushId(row.member_id));
+  const trash = tables.trash && typeof tables.trash === "object" ? tables.trash : {};
+  (Array.isArray(trash.sessionMembers) ? trash.sessionMembers : []).forEach((row) => pushId(row.member_id));
+  (Array.isArray(tables.debtRecords) ? tables.debtRecords : []).forEach((row) => {
+    pushId(row.debtor_member_id);
+    pushId(row.creditor_member_id);
+  });
+  const namesById = new Map((Array.isArray(tables.members) ? tables.members : []).map((member) => [String(member.id || ""), String(member.display_name || "不明なメンバー")]));
+  return [...new Set(rows)].map((id) => ({ id, displayName: namesById.get(id) || "不明なメンバー" }));
+}
+
+async function fetchBackupSessionBundle(groupId, deletedOnly) {
+  let sessionsQuery = supabaseClient
+    .from("match_sessions")
+    .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, chip_value, default_uma, tobi_enabled, venue_fee_total, venue_id, notes, status, settled_at, deleted_at, deleted_by, deleted_reason, created_at")
+    .eq("group_id", groupId)
+    .order("session_date", { ascending: true })
+    .order("created_at", { ascending: true });
+  sessionsQuery = deletedOnly
+    ? sessionsQuery.not("deleted_at", "is", null)
+    : sessionsQuery.is("deleted_at", null);
+
+  const { data: sessionsData, error: sessionsError } = await sessionsQuery;
+  if (sessionsError) throw sessionsError;
+  const sessions = sessionsData || [];
+  const sessionIds = sessions.map((row) => row.id);
+  const empty = { sessions, sessionMembers: [], hanchans: [], results: [], chips: [], prepayments: [], tobiTransfers: [], yakumans: [] };
+  if (!sessionIds.length) return empty;
+
+  const [sessionMembersResponse, hanchansResponse, chipsResponse, prepaymentsResponse] = await Promise.all([
+    supabaseClient.from("match_session_members").select("session_id, member_id").in("session_id", sessionIds),
+    supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, notes, created_at").in("session_id", sessionIds).order("sequence_no", { ascending: true }),
+    supabaseClient.from("match_session_chips").select("session_id, member_id, chip_count, updated_at").in("session_id", sessionIds),
+    supabaseClient.from("match_session_venue_prepayments").select("session_id, member_id, paid_molly, updated_at").in("session_id", sessionIds)
+  ]);
+  [sessionMembersResponse, hanchansResponse, chipsResponse, prepaymentsResponse].forEach((response) => {
+    if (response.error) throw response.error;
+  });
+
+  const hanchans = hanchansResponse.data || [];
+  const hanchanIds = hanchans.map((row) => row.id);
+  if (!hanchanIds.length) {
+    return {
+      ...empty,
+      sessionMembers: sessionMembersResponse.data || [],
+      hanchans,
+      chips: chipsResponse.data || [],
+      prepayments: prepaymentsResponse.data || []
+    };
+  }
+
+  const [resultsResponse, transfersResponse, yakumansResponse] = await Promise.all([
+    supabaseClient.from("match_hanchan_results").select("id, hanchan_id, member_id, rank, final_points, score_points, uma_points, tobi_points, total_points").in("hanchan_id", hanchanIds),
+    supabaseClient.from("match_tobi_transfers").select("id, hanchan_id, from_member_id, to_member_id, points").in("hanchan_id", hanchanIds),
+    supabaseClient.from("match_yakuman_records").select("id, hanchan_id, winner_member_id, yakuman_name, win_type, houjuu_member_id, created_at").in("hanchan_id", hanchanIds)
+  ]);
+  [resultsResponse, transfersResponse, yakumansResponse].forEach((response) => {
+    if (response.error) throw response.error;
+  });
+
+  return {
+    sessions,
+    sessionMembers: sessionMembersResponse.data || [],
+    hanchans,
+    results: resultsResponse.data || [],
+    chips: chipsResponse.data || [],
+    prepayments: prepaymentsResponse.data || [],
+    tobiTransfers: transfersResponse.data || [],
+    yakumans: yakumansResponse.data || []
+  };
+}
+
+async function fetchFullBackupV2Payload(groupId) {
+  const [activeBundle, trashBundle, membersResponse, venuesResponse, templatesResponse, debtsResponse, debtEventsResponse, activitiesResponse] = await Promise.all([
+    fetchBackupSessionBundle(groupId, false),
+    fetchBackupSessionBundle(groupId, true),
+    supabaseClient.from("group_members").select("id, group_id, user_id, display_name, role, created_at").eq("group_id", groupId).order("created_at", { ascending: true }),
+    supabaseClient.from("match_venues").select("id, group_id, name, note, is_archived, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
+    supabaseClient.from("match_setting_templates").select("id, group_id, name, game_mode, rate_label, rate_multiplier, starting_points, uma, chip_unit, tobi_enabled, created_by, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
+    supabaseClient.from("debt_records").select("id, group_id, source_session_id, debtor_member_id, creditor_member_id, original_amount_pt, remaining_amount_pt, status, record_kind, memo, due_date, paid_at, cancelled_at, cancelled_by, cancelled_reason, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
+    supabaseClient.from("debt_events").select("id, group_id, debt_id, event_type, amount_pt, related_debt_id, note, occurred_at").eq("group_id", groupId).order("occurred_at", { ascending: true }),
+    supabaseClient.from("group_activity_logs").select("id, group_id, actor_user_id, event_type, entity_type, entity_id, summary, details, created_at").eq("group_id", groupId).order("created_at", { ascending: true })
+  ]);
+
+  [membersResponse, venuesResponse, templatesResponse, debtsResponse, debtEventsResponse, activitiesResponse].forEach((response) => {
+    if (response.error) throw response.error;
+  });
+
+  return {
+    ...activeBundle,
+    members: membersResponse.data || [],
+    venues: venuesResponse.data || [],
+    templates: templatesResponse.data || [],
+    debtRecords: debtsResponse.data || [],
+    debtEvents: debtEventsResponse.data || [],
+    activityLogs: activitiesResponse.data || [],
+    trash: trashBundle
+  };
+}
+
+const exportGroupDataV31 = exportGroupData;
+exportGroupData = async function(kind) {
+  if (kind !== "json") return exportGroupDataV31(kind);
+  const group = getActiveGroup();
+  if (!group || !activeGroupId) return;
+  exportMessage = "拡張JSONバックアップを作成しています…";
+  exportMessageIsError = false;
+  renderSettingsPage();
+  try {
+    const payload = await fetchFullBackupV2Payload(activeGroupId);
+    const backup = {
+      format: "jakuroku-backup-v2",
+      exported_at: new Date().toISOString(),
+      scope: { type: "full_group", label: "グループ全体" },
+      group: { id: group.id, name: group.name, created_at: group.created_at || null },
+      tables: payload
+    };
+    const baseName = `jakuroku_${safeDownloadName(group.name)}_full`;
+    downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" }), `${baseName}_backup_v2.json`);
+    exportMessage = `拡張JSONバックアップ v2を出力しました（対局${payload.sessions.length}日分、ゴミ箱${payload.trash.sessions.length}日分）。`;
+    exportMessageIsError = false;
+  } catch (error) {
+    console.error("拡張JSONバックアップの出力に失敗しました。", error);
+    exportMessage = error.message || "拡張JSONバックアップの出力に失敗しました。";
+    exportMessageIsError = true;
+  }
+  renderSettingsPage();
+};
+
+function getPreviewBlockForBackupV2(preview) {
+  const active = preview?.active_matches || {};
+  const trash = preview?.trash_matches || {};
+  return {
+    active,
+    trash,
+    unresolvedActive: Number(active.unresolved_member_count || 0),
+    unresolvedTrash: Number(trash.unresolved_member_count || 0),
+    unresolvedDebt: Number(preview?.unresolved_debt_member_count || 0),
+    newActive: Number(active.new_session_count || 0),
+    newTrash: Number(trash.new_session_count || 0),
+    venues: Number(preview?.venues_count || 0),
+    templates: Number(preview?.templates_count || 0),
+    debts: Number(preview?.debt_records_count || 0),
+    debtEvents: Number(preview?.debt_events_count || 0),
+    activities: Number(preview?.activity_logs_count || 0)
+  };
+}
+
+function backupRestoreErrorV32(message) {
+  backupRestoreState.preview = null;
+  backupRestoreState.message = message;
+  backupRestoreState.isError = true;
+  backupRestoreState.busy = false;
+}
+
+previewBackupRestore = async function() {
+  if (!backupRestoreState.backup || !activeGroupId) return;
+  backupRestoreState.busy = true;
+  backupRestoreState.message = "バックアップ内容を確認しています…";
+  backupRestoreState.isError = false;
+  renderSettingsPage();
+  try {
+    const v2 = isBackupV2();
+    const { data, error } = await supabaseClient.rpc(v2 ? "preview_jakuroku_backup_v2" : "preview_jakuroku_backup", v2 ? {
+      p_target_group_id: activeGroupId,
+      p_backup: backupRestoreState.backup,
+      p_member_map: backupRestoreState.memberMap,
+      p_options: getBackupRestoreOptions()
+    } : {
+      p_target_group_id: activeGroupId,
+      p_backup: backupRestoreState.backup,
+      p_member_map: backupRestoreState.memberMap
+    });
+    if (error) throw error;
+    backupRestoreState.preview = data || null;
+    backupRestoreState.message = v2
+      ? "拡張バックアップの内容を確認しました。復元対象と参加メンバーを確認してください。"
+      : "内容を確認しました。復元前に参加メンバーの対応付けを確認してください。";
+    backupRestoreState.isError = false;
+  } catch (error) {
+    backupRestoreErrorV32(error.message || "バックアップ内容を確認できませんでした。");
+    renderSettingsPage();
+    return;
+  }
+  backupRestoreState.busy = false;
+  renderSettingsPage();
+};
+
+readBackupRestoreFile = async function(file) {
+  if (!file) return;
+  backupRestoreState.busy = true;
+  backupRestoreState.message = "JSONファイルを読み込んでいます…";
+  backupRestoreState.isError = false;
+  renderSettingsPage();
+  try {
+    if (file.size > 25 * 1024 * 1024) throw new Error("JSONバックアップは25MB以下のファイルを選択してください。");
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    if (!backup || typeof backup !== "object" || !String(backup.format || "").startsWith("jakuroku-backup-v")) {
+      throw new Error("雀録のJSONバックアップファイルを選択してください。");
+    }
+    const sourceMembers = isBackupV2(backup)
+      ? getBackupRestoreSourceMembersV2(backup)
+      : getBackupRestoreSourceMembers(backup);
+    backupRestoreState.backup = backup;
+    backupRestoreState.fileName = file.name;
+    backupRestoreState.sourceMembers = sourceMembers;
+    backupRestoreState.memberMap = buildDefaultBackupMemberMap(sourceMembers);
+    backupRestoreState.options = defaultBackupRestoreOptions(backup);
+    backupRestoreState.preview = null;
+    backupRestoreState.busy = false;
+    await previewBackupRestore();
+  } catch (error) {
+    backupRestoreState.backup = null;
+    backupRestoreState.fileName = "";
+    backupRestoreState.sourceMembers = [];
+    backupRestoreState.memberMap = {};
+    backupRestoreState.options = defaultBackupRestoreOptions(null);
+    backupRestoreErrorV32(error.message || "JSONファイルを読み込めませんでした。");
+    renderSettingsPage();
+  }
+};
+
+clearBackupRestoreState = function() {
+  backupRestoreState = {
+    backup: null,
+    fileName: "",
+    sourceMembers: [],
+    memberMap: {},
+    options: defaultBackupRestoreOptions(null),
+    preview: null,
+    message: "",
+    isError: false,
+    busy: false
+  };
+  renderSettingsPage();
+};
+
+function renderBackupRestoreOption(key, title, description, checked, disabled = false) {
+  return `<label class="backup-restore-option ${disabled ? "is-disabled" : ""}"><input type="checkbox" data-backup-restore-option="${key}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small></span></label>`;
+}
+
+function renderBackupRestoreSectionV32() {
+  const hasBackup = Boolean(backupRestoreState.backup);
+  const v2 = isBackupV2();
+  const preview = backupRestoreState.preview || {};
+  const options = getBackupRestoreOptions();
+  const status = backupRestoreState.message ? `<p class="backup-restore-message ${backupRestoreState.isError ? "error" : ""}">${escapeHtml(backupRestoreState.message)}</p>` : "";
+  const sourceName = escapeHtml(String(backupRestoreState.backup?.group?.name || preview?.active_matches?.source_group_name || preview.source_group_name || "不明なグループ"));
+  const exportedAt = backupRestoreState.backup?.exported_at ? new Date(backupRestoreState.backup.exported_at).toLocaleString("ja-JP") : "不明";
+  const memberRows = hasBackup && backupRestoreState.sourceMembers.length ? backupRestoreState.sourceMembers.map((source) => {
+    const selected = String(backupRestoreState.memberMap[source.id] || "");
+    const targetOptions = [`<option value="">対応先を選択</option>`, ...activeGroupMembers.map((target) => `<option value="${escapeHtml(target.id)}" ${selected === String(target.id) ? "selected" : ""}>${escapeHtml(target.display_name)}${target.user_id ? "" : "（ゲスト）"}</option>`)].join("");
+    return `<label class="backup-member-map-row"><span><strong>${escapeHtml(source.displayName)}</strong><small>バックアップ側</small></span><select data-backup-member-map-id="${escapeHtml(source.id)}">${targetOptions}</select></label>`;
+  }).join("") : "";
+
+  let previewBlock = "";
+  let canRestore = false;
+  if (hasBackup && backupRestoreState.preview) {
+    if (v2) {
+      const values = getPreviewBlockForBackupV2(preview);
+      const unresolved = (options.include_matches ? values.unresolvedActive : 0)
+        + (options.include_trash ? values.unresolvedTrash : 0)
+        + ((options.include_debts || options.include_trash) ? values.unresolvedDebt : 0);
+      const hasSelectedData = (options.include_matches && values.newActive > 0)
+        || (options.include_trash && values.newTrash > 0)
+        || (options.include_venues && values.venues > 0)
+        || (options.include_templates && values.templates > 0)
+        || (options.include_debts && values.debts > 0)
+        || (options.include_activity_logs && values.activities > 0);
+      canRestore = !backupRestoreState.busy && unresolved === 0 && hasSelectedData;
+      previewBlock = `
+        <div class="backup-restore-preview">
+          <div class="backup-restore-preview-grid">
+            <div><span>バックアップ元</span><strong>${sourceName}</strong></div>
+            <div><span>出力日時</span><strong>${escapeHtml(exportedAt)}</strong></div>
+            <div><span>通常の対局</span><strong>${values.newActive}日分を新規復元</strong></div>
+            <div><span>ゴミ箱の対局</span><strong>${values.newTrash}日分</strong></div>
+            <div><span>会場</span><strong>${values.venues}件</strong></div>
+            <div><span>テンプレート</span><strong>${values.templates}件</strong></div>
+            <div><span>借pt</span><strong>${values.debts}件</strong></div>
+            <div><span>編集履歴</span><strong>${values.activities}件</strong></div>
+          </div>
+          <div class="backup-restore-option-grid">
+            ${renderBackupRestoreOption("include_matches", "対局・半荘・チップ・場代・役満", "通常の対局記録を復元します。既存データは上書きしません。", options.include_matches)}
+            ${renderBackupRestoreOption("include_venues", "会場", "会場名・メモ・アーカイブ状態を復元します。", options.include_venues)}
+            ${renderBackupRestoreOption("include_templates", "設定テンプレート", "形式・レート・ウマなどの保存済みテンプレートを復元します。", options.include_templates)}
+            ${renderBackupRestoreOption("include_debts", "借pt", "未精算・精算済みの借ptと履歴を復元します。", options.include_debts)}
+            ${renderBackupRestoreOption("include_activity_logs", "編集履歴", "復元元の履歴を『復元済み履歴』として追加します。", options.include_activity_logs)}
+            ${renderBackupRestoreOption("include_trash", "ゴミ箱", "削除済みの対局と取消済み借ptをゴミ箱状態のまま復元します。", options.include_trash)}
+          </div>
+          <details class="backup-member-map-details" ${(unresolved > 0 || backupRestoreState.sourceMembers.length) ? "open" : ""}>
+            <summary>参加メンバーの対応付け（${backupRestoreState.sourceMembers.length}人）</summary>
+            <p>対局・借ptを復元する場合、バックアップ側の参加者を現在のグループ内メンバーへ対応付けます。同じグループのバックアップでは通常そのままで問題ありません。</p>
+            ${memberRows ? `<div class="backup-member-map-list">${memberRows}</div>` : `<p class="game-section-note">対応付けが必要な参加メンバーはいません。</p>`}
+            <button id="backupRestoreRecheckButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>対応付けを再確認</button>
+          </details>
+          ${unresolved ? `<p class="backup-restore-warning">選択した復元対象に未対応の参加者が${unresolved}人います。対応付け後に再確認してください。</p>` : ""}
+          ${!hasSelectedData ? `<p class="backup-restore-warning">選択した復元対象に新規データがありません。復元対象を見直してください。</p>` : ""}
+          <div class="backup-restore-actions"><button id="backupRestoreExecuteButton" class="primary-button" type="button" ${canRestore ? "" : "disabled"}>${backupRestoreState.busy ? "処理中…" : "選択した内容を復元"}</button><button id="backupRestoreClearButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>選択を解除</button></div>
+        </div>`;
+    } else {
+      const unresolved = Number(preview.unresolved_member_count || 0);
+      const newSessions = Number(preview.new_session_count || 0);
+      canRestore = !backupRestoreState.busy && unresolved === 0 && newSessions > 0;
+      previewBlock = `
+        <div class="backup-restore-preview">
+          <div class="backup-restore-preview-grid">
+            <div><span>バックアップ元</span><strong>${sourceName}</strong></div>
+            <div><span>出力日時</span><strong>${escapeHtml(exportedAt)}</strong></div>
+            <div><span>日次記録</span><strong>${Number(preview.session_count || 0)}日分</strong></div>
+            <div><span>新規復元</span><strong>${newSessions}日分</strong></div>
+            <div><span>重複のため除外</span><strong>${Number(preview.already_imported_session_count || 0)}日分</strong></div>
+            <div><span>未対応メンバー</span><strong class="${unresolved ? "is-negative" : "is-positive"}">${unresolved}人</strong></div>
+          </div>
+          <details class="backup-member-map-details" ${unresolved ? "open" : ""}>
+            <summary>参加メンバーの対応付け（${backupRestoreState.sourceMembers.length}人）</summary>
+            <p>バックアップ側の参加者を、現在のグループ内メンバーへ対応付けます。</p>
+            <div class="backup-member-map-list">${memberRows}</div>
+            <button id="backupRestoreRecheckButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>対応付けを再確認</button>
+          </details>
+          ${unresolved ? `<p class="backup-restore-warning">未対応の参加者がいるため、復元はまだ実行できません。</p>` : ""}
+          <div class="backup-restore-actions"><button id="backupRestoreExecuteButton" class="primary-button" type="button" ${canRestore ? "" : "disabled"}>${backupRestoreState.busy ? "処理中…" : "この内容で復元"}</button><button id="backupRestoreClearButton" class="secondary-button" type="button" ${backupRestoreState.busy ? "disabled" : ""}>選択を解除</button></div>
+        </div>`;
+    }
+  }
+
+  return `<section class="settings-section backup-restore-section">
+    <div class="settings-section-heading"><div><p class="eyebrow">DATA RESTORE</p><h3>JSONバックアップを復元</h3></div>${hasBackup ? `<span class="member-role-badge">${v2 ? "v2" : "旧形式"} ／ ${escapeHtml(backupRestoreState.fileName)}</span>` : ""}</div>
+    <p class="settings-help">既存データは上書きしません。v2では会場・テンプレート・借pt・編集履歴・ゴミ箱も選択して復元できます。旧形式のJSONは、対局データのみ復元できます。</p>
+    <label class="backup-file-input"><span>JSONバックアップを選択</span><input id="backupRestoreFileInput" type="file" accept="application/json,.json" ${backupRestoreState.busy ? "disabled" : ""}></label>
+    ${status}
+    ${previewBlock}
+  </section>`;
+}
+
+injectBackupRestoreSection = function() {
+  const page = getPageWorkspace();
+  if (!page || page.querySelector(".backup-restore-section")) return;
+  const exportSection = page.querySelector(".data-export-section");
+  if (exportSection) exportSection.insertAdjacentHTML("afterend", renderBackupRestoreSectionV32());
+  else page.querySelector(".settings-card")?.insertAdjacentHTML("beforeend", renderBackupRestoreSectionV32());
+
+  document.getElementById("backupRestoreFileInput")?.addEventListener("change", (event) => { void readBackupRestoreFile(event.target.files?.[0]); });
+  document.querySelectorAll("[data-backup-member-map-id]").forEach((select) => {
+    select.addEventListener("change", () => {
+      backupRestoreState.memberMap[select.dataset.backupMemberMapId] = select.value;
+      backupRestoreState.preview = null;
+      backupRestoreState.message = "対応付けを変更しました。「対応付けを再確認」を押してください。";
+      backupRestoreState.isError = false;
+      renderSettingsPage();
+    });
+  });
+  document.querySelectorAll("[data-backup-restore-option]").forEach((input) => {
+    input.addEventListener("change", () => {
+      backupRestoreState.options = { ...getBackupRestoreOptions(), [input.dataset.backupRestoreOption]: input.checked };
+      backupRestoreState.message = "復元対象を変更しました。内容を確認後に復元してください。";
+      backupRestoreState.isError = false;
+      renderSettingsPage();
+    });
+  });
+  document.getElementById("backupRestoreRecheckButton")?.addEventListener("click", () => { void previewBackupRestore(); });
+  document.getElementById("backupRestoreClearButton")?.addEventListener("click", clearBackupRestoreState);
+  document.getElementById("backupRestoreExecuteButton")?.addEventListener("click", async () => {
+    const preview = backupRestoreState.preview;
+    const backup = backupRestoreState.backup;
+    if (!preview || !backup) return;
+    const v2 = isBackupV2(backup);
+    const options = getBackupRestoreOptions();
+    const message = v2
+      ? `${backup.group?.name || "バックアップ"}から、選択した拡張データを復元します。\n\n既存データは上書きされません。実行しますか？`
+      : `${preview.source_group_name || "バックアップ"}から${preview.new_session_count || 0}日分の新規記録を復元します。\n\n既存データは上書きされません。実行しますか？`;
+    if (!window.confirm(message)) return;
+    backupRestoreState.busy = true;
+    backupRestoreState.message = "バックアップを復元しています…";
+    backupRestoreState.isError = false;
+    renderSettingsPage();
+    try {
+      markLocalRealtimeWrite();
+      const { data, error } = await supabaseClient.rpc(v2 ? "restore_jakuroku_backup_v2" : "restore_jakuroku_backup", v2 ? {
+        p_target_group_id: activeGroupId,
+        p_backup: backup,
+        p_member_map: backupRestoreState.memberMap,
+        p_options: { ...options, source: "settings_json_restore_v2", file_name: backupRestoreState.fileName }
+      } : {
+        p_target_group_id: activeGroupId,
+        p_backup: backup,
+        p_member_map: backupRestoreState.memberMap,
+        p_options: { source: "settings_json_restore", file_name: backupRestoreState.fileName }
+      });
+      if (error) throw error;
+      backupRestoreState.message = data?.message || "バックアップを復元しました。";
+      backupRestoreState.isError = false;
+      backupRestoreState.busy = false;
+      await Promise.all([
+        loadMatchSessions(),
+        loadRankingData(),
+        loadHistoryData(),
+        loadExportPeriodOptions(),
+        loadMatchVenues().catch(() => []),
+        loadMatchSettingTemplates().catch(() => [])
+      ]);
+      await Promise.all([loadActivityLogs().catch(() => {}), fetchDebtData().catch(() => {})]);
+      renderSettingsPage();
+    } catch (error) {
+      backupRestoreErrorV32(error.message || "バックアップを復元できませんでした。");
+      renderSettingsPage();
+    }
+  });
+};
+
+const renderSettingsPageV31 = renderSettingsPage;
+renderSettingsPage = function() {
+  renderSettingsPageV31();
+  const section = document.querySelector(".data-export-section");
+  if (section) {
+    const heading = section.querySelector("h3");
+    if (heading) heading.textContent = "記録のバックアップ・出力";
+    const jsonButton = section.querySelector("#settingsExportJsonButton");
+    if (jsonButton) jsonButton.textContent = "拡張JSONバックアップ v2を出力";
+    const help = section.querySelector(".data-export-help");
+    if (help) help.textContent = "CSVは選択期間の確認用です。JSON v2はグループ全体の対局・会場・テンプレート・借pt・編集履歴・ゴミ箱を保存します。招待コードは含めません。";
+    const badge = section.querySelector(".member-role-badge");
+    if (badge) badge.textContent = "JSONはグループ全体";
+  }
+};
