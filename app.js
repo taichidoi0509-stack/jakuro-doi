@@ -1475,6 +1475,7 @@ function renderActiveSessionView() {
         <div class="final-settlement-list">${finalRows}</div>
         <div class="daily-total-footer"><span>最終pt合計</span><strong>${formatPtMarkup(finalSettlementPtSum)}</strong></div>
         <div class="payment-route-box"><p>送金ルート（相殺済み）</p>${venueReady ? routeRows : `<p class="game-section-note">場代合計と先払い合計を一致させると、送金ルートを表示します。</p>`}</div>
+        ${session.status === "settled" ? `<button id="openResultShareCardButton" class="share-result-button" type="button">結果カードを作成</button><p class="game-section-note">ゲームpt・チップ・役満・送金ルートを1枚の画像にまとめます。</p>` : ""}
         ${session.status === "open" ? `<button id="settleSessionButton" class="save-game-button" type="button">1日の精算を確定</button><p class="game-section-note">半荘・終了時チップ・場代を確認してから確定してください。確定後も必要に応じて編集できます。</p>` : `<p class="settled-note">この麻雀会は精算済みです。半荘・チップ・場代を編集すると、通算集計も自動で更新されます。</p>`}
       </section>
     </section>
@@ -1522,6 +1523,9 @@ function renderActiveSessionView() {
     renderActiveSessionView();
   });
   document.getElementById("settleSessionButton")?.addEventListener("click", settleMatchSession);
+  document.getElementById("openResultShareCardButton")?.addEventListener("click", () => {
+    openResultShareCard({ session, totals, routes, venueReady });
+  });
   document.querySelectorAll("[data-register-route-index]").forEach((button) => {
     button.addEventListener("click", () => {
       const route = routes[Number(button.dataset.registerRouteIndex)];
@@ -4236,3 +4240,233 @@ renderRankingPage = function() {
   renderRankingPageV26();
   enhanceRankingWithDetailedAnalysis();
 };
+
+
+/* v29: shareable daily result card */
+function closeResultShareCard() {
+  document.querySelector(".result-share-modal-overlay")?.remove();
+}
+
+function shareCardSignedPt(value) {
+  const amount = num(value);
+  return `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${Math.abs(amount).toLocaleString("ja-JP", { maximumFractionDigits: 2 })} pt`;
+}
+
+function shareCardSignedScore(value) {
+  const amount = num(value);
+  return `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${Math.abs(amount).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}`;
+}
+
+function shareCardChipText(value) {
+  const amount = num(value);
+  return `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${Math.abs(amount).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}枚`;
+}
+
+function shareCardValueColor(value) {
+  if (num(value) > 0.004) return "#16834b";
+  if (num(value) < -0.004) return "#c73e42";
+  return "#4d5a54";
+}
+
+function shareCardRoundedRect(ctx, x, y, width, height, radius, fill, stroke) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+}
+
+function shareCardEllipsis(ctx, text, maxWidth) {
+  const value = String(text || "");
+  if (ctx.measureText(value).width <= maxWidth) return value;
+  let result = value;
+  while (result.length > 1 && ctx.measureText(`${result}…`).width > maxWidth) result = result.slice(0, -1);
+  return `${result}…`;
+}
+
+function getShareCardYakumanLines() {
+  return activeYakumanRecords
+    .map((record) => `${getMemberName(record.winner_member_id)}：${record.yakuman_name}${record.win_type === "ron" ? "（ロン）" : "（ツモ）"}`)
+    .slice(0, 5);
+}
+
+function createResultShareCanvas({ session, totals, routes, venueReady }) {
+  const ranked = [...totals].sort((a, b) => b.gameSettlementPt - a.gameSettlementPt || a.displayName.localeCompare(b.displayName, "ja"));
+  const yakumanLines = getShareCardYakumanLines();
+  const routeLines = venueReady && routes.length
+    ? routes.slice(0, 5).map((route) => `${route.from} → ${route.to}　${formatPtPlain(route.amount)}`)
+    : ["送金なし"];
+  const width = 1080;
+  const playerBlockHeight = 136;
+  const yakumanBlockHeight = yakumanLines.length ? 74 + yakumanLines.length * 44 : 0;
+  const routeBlockHeight = 74 + routeLines.length * 44;
+  const height = Math.max(1240, 440 + ranked.length * playerBlockHeight + yakumanBlockHeight + routeBlockHeight + 160);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  const bg = ctx.createLinearGradient(0, 0, width, height);
+  bg.addColorStop(0, "#0c392c");
+  bg.addColorStop(.55, "#155541");
+  bg.addColorStop(1, "#0b2f25");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.globalAlpha = .13;
+  ctx.strokeStyle = "#ecf6e8";
+  ctx.lineWidth = 2;
+  for (let i = -height; i < width + height; i += 58) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + height, height);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#f5f1e5";
+  ctx.font = "800 30px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText("JAKUROKU", 72, 88);
+  ctx.font = "700 22px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillStyle = "#cee4d6";
+  ctx.fillText(shareCardEllipsis(ctx, getActiveGroup()?.name || "麻雀会", 430), 72, 124);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#f5f1e5";
+  ctx.font = "900 42px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText(formatDate(session.session_date), width - 72, 88);
+  ctx.font = "700 22px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillStyle = "#cee4d6";
+  ctx.fillText(`${getModeLabel(session.game_mode)} ／ ${session.rate_label}`, width - 72, 124);
+  ctx.textAlign = "left";
+
+  shareCardRoundedRect(ctx, 56, 166, width - 112, 178, 24, "#f7f4eb");
+  ctx.fillStyle = "#245342";
+  ctx.font = "800 23px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText("ゲームpt（場代を除く）", 88, 218);
+  ctx.fillStyle = "#163c2f";
+  ctx.font = "900 28px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText(`収支1 = ${num(session.rate_multiplier).toLocaleString("ja-JP", { maximumFractionDigits: 2 })} pt`, 88, 260);
+  ctx.textAlign = "right";
+  ctx.font = "800 22px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillStyle = "#627068";
+  ctx.fillText(`半荘 ${activeHanchans.length}回`, width - 88, 218);
+  ctx.fillText(`チップ ${num(session.chip_value).toLocaleString("ja-JP", { maximumFractionDigits: 2 })} / 枚`, width - 88, 260);
+  ctx.textAlign = "left";
+
+  let y = 382;
+  ctx.fillStyle = "#eaf6ef";
+  ctx.font = "900 24px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText("TODAY'S RESULT", 72, y);
+  y += 28;
+
+  ranked.forEach((item, index) => {
+    const cardY = y + index * playerBlockHeight;
+    shareCardRoundedRect(ctx, 56, cardY, width - 112, 116, 20, "#ffffff");
+    shareCardRoundedRect(ctx, 78, cardY + 20, 66, 66, 18, index === 0 ? "#caa63d" : index === 1 ? "#a9b2b8" : index === 2 ? "#be855c" : "#e8eee9");
+    ctx.fillStyle = index < 3 ? "#fff" : "#285243";
+    ctx.textAlign = "center";
+    ctx.font = "900 28px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillText(String(index + 1), 111, cardY + 63);
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = "#1c3028";
+    ctx.font = "900 31px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillText(shareCardEllipsis(ctx, item.displayName, 360), 170, cardY + 51);
+    ctx.fillStyle = "#748077";
+    ctx.font = "700 20px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillText(`素点 ${shareCardSignedScore(item.hanchanTotal)} ／ チップ ${shareCardChipText(item.chipCount)}`, 170, cardY + 82);
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = shareCardValueColor(item.gameSettlementPt);
+    ctx.font = "900 36px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillText(shareCardSignedPt(item.gameSettlementPt), width - 84, cardY + 62);
+    ctx.font = "700 18px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillStyle = "#748077";
+    ctx.fillText(`ゲーム収支 ${shareCardSignedScore(item.totalPoints)}`, width - 84, cardY + 88);
+    ctx.textAlign = "left";
+  });
+
+  y += ranked.length * playerBlockHeight + 24;
+  if (yakumanLines.length) {
+    const blockHeight = 60 + yakumanLines.length * 39;
+    shareCardRoundedRect(ctx, 56, y, width - 112, blockHeight, 20, "#fff5e8");
+    ctx.fillStyle = "#9a5317";
+    ctx.font = "900 24px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    ctx.fillText("YAKUMAN", 84, y + 38);
+    ctx.fillStyle = "#63370e";
+    ctx.font = "700 21px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+    yakumanLines.forEach((line, index) => ctx.fillText(shareCardEllipsis(ctx, line, width - 170), 84, y + 76 + index * 38));
+    y += blockHeight + 22;
+  }
+
+  shareCardRoundedRect(ctx, 56, y, width - 112, routeBlockHeight, 20, "#edf7f1");
+  ctx.fillStyle = "#215946";
+  ctx.font = "900 24px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText("PAYMENT ROUTES", 84, y + 38);
+  ctx.fillStyle = "#2b3d34";
+  ctx.font = "700 21px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  routeLines.forEach((line, index) => ctx.fillText(shareCardEllipsis(ctx, line, width - 170), 84, y + 76 + index * 38));
+
+  ctx.fillStyle = "#cfe3d7";
+  ctx.font = "700 18px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("記録・集計：雀録", width / 2, height - 52);
+  ctx.textAlign = "left";
+  return canvas;
+}
+
+function downloadResultShareCard(canvas) {
+  const dateText = String(activeMatchSession?.session_date || todayInJapan()).replaceAll("-", "");
+  const link = document.createElement("a");
+  link.download = `jakuroku-result-${dateText}.png`;
+  link.href = canvas.toDataURL("image/png");
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+function openResultShareCard(data) {
+  closeResultShareCard();
+  const canvas = createResultShareCanvas(data);
+  const canShareFile = Boolean(navigator.share && window.File && (typeof navigator.canShare !== "function" || navigator.canShare({ files: [new File(["x"], "jakuroku.png", { type: "image/png" })] })));
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="result-share-modal-overlay">
+      <section class="result-share-modal" role="dialog" aria-modal="true" aria-labelledby="resultShareCardTitle">
+        <button class="result-share-close" type="button" aria-label="閉じる">×</button>
+        <p class="eyebrow">RESULT CARD</p>
+        <h2 id="resultShareCardTitle">結果共有カード</h2>
+        <p>場代を除いたゲームptを中心に、チップ・役満・送金ルートをまとめた画像です。</p>
+        <div class="result-share-canvas-wrap"></div>
+        <div class="result-share-actions">
+          <button id="downloadResultShareCardButton" class="primary-button" type="button">PNGを保存</button>
+          ${canShareFile ? `<button id="nativeShareResultCardButton" class="secondary-button" type="button">共有</button>` : ""}
+          <button id="closeResultShareCardButton" class="secondary-button" type="button">閉じる</button>
+        </div>
+      </section>
+    </div>
+  `);
+  const overlay = document.querySelector(".result-share-modal-overlay");
+  overlay.querySelector(".result-share-canvas-wrap")?.append(canvas);
+  const close = closeResultShareCard;
+  overlay.querySelector(".result-share-close")?.addEventListener("click", close);
+  overlay.querySelector("#closeResultShareCardButton")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector("#downloadResultShareCardButton")?.addEventListener("click", () => downloadResultShareCard(canvas));
+  overlay.querySelector("#nativeShareResultCardButton")?.addEventListener("click", async () => {
+    try {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("画像を作成できませんでした。");
+      const dateText = String(data.session.session_date || todayInJapan()).replaceAll("-", "");
+      const file = new File([blob], `jakuroku-result-${dateText}.png`, { type: "image/png" });
+      await navigator.share({ title: "雀録 結果カード", text: `${formatDate(data.session.session_date)}の麻雀会`, files: [file] });
+    } catch (error) {
+      if (error?.name !== "AbortError") alert(error?.message || "共有できませんでした。PNGを保存して共有してください。");
+    }
+  });
+}

@@ -707,3 +707,21 @@ button.history-calendar-cell { cursor: pointer; }
 .ranking-empty-filter { display: grid; gap: 11px; margin-top: 16px; padding-top: 15px; border-top: 1px solid var(--line); }
 .ranking-empty-filter > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .ranking-empty-filter .secondary-button { justify-self: start; }
+
+
+/* v29: shareable result card */
+.share-result-button { width: 100%; margin-top: 14px; padding: 13px 14px; border: 1px solid #bcd7c7; border-radius: 12px; background: linear-gradient(135deg, #f7fbf8, #e9f4ed); color: var(--green); font-size: 13px; font-weight: 900; }
+.result-share-modal-overlay { position: fixed; inset: 0; z-index: 190; display: grid; place-items: center; padding: 16px; overflow-y: auto; background: rgba(8, 31, 23, .72); backdrop-filter: blur(7px); }
+.result-share-modal { position: relative; width: min(100%, 560px); max-height: calc(100vh - 32px); overflow: auto; padding: 28px 18px 18px; border-radius: 22px; background: #fff; box-shadow: 0 28px 82px rgba(0,0,0,.32); }
+.result-share-modal h2 { margin: 6px 0 8px; color: var(--ink); font-size: 21px; }
+.result-share-modal > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.result-share-close { position: absolute; top: 10px; right: 11px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #f0f2ef; color: var(--ink); font-size: 22px; }
+.result-share-canvas-wrap { margin-top: 15px; overflow: hidden; border: 1px solid #d5e0d9; border-radius: 16px; background: #0c392c; }
+.result-share-canvas-wrap canvas { display: block; width: 100%; height: auto; }
+.result-share-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.result-share-actions .primary-button, .result-share-actions .secondary-button { min-width: 0; padding: 11px 8px; font-size: 11px; }
+@media (max-width: 420px) {
+  .result-share-modal { padding: 27px 13px 13px; }
+  .result-share-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-share-actions #closeResultShareCardButton { grid-column: span 2; }
+}
