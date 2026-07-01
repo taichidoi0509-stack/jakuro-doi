@@ -5752,3 +5752,486 @@ renderSettingsPage = function() {
     if (badge) badge.textContent = "JSONはグループ全体";
   }
 };
+
+/* v33: in-app feedback board */
+let feedbackItems = [];
+let feedbackComments = [];
+let feedbackStatusFilter = "all";
+let feedbackExpandedId = "";
+let feedbackShowCreateForm = false;
+let feedbackMessage = "";
+let feedbackMessageIsError = false;
+let feedbackBusy = false;
+let feedbackRealtimeChannel = null;
+let feedbackRealtimeGroupId = null;
+
+const FEEDBACK_STATUS_OPTIONS = [
+  { value: "all", label: "すべて" },
+  { value: "open", label: "未確認" },
+  { value: "in_progress", label: "対応中" },
+  { value: "resolved", label: "完了" },
+  { value: "declined", label: "見送り" }
+];
+
+function feedbackCategoryLabel(value) {
+  return {
+    feature_request: "機能要望",
+    bug: "不具合",
+    usability: "使いにくい点",
+    other: "その他"
+  }[value] || "その他";
+}
+
+function feedbackStatusLabel(value) {
+  return {
+    open: "未確認",
+    in_progress: "対応中",
+    resolved: "完了",
+    declined: "見送り"
+  }[value] || "未確認";
+}
+
+function feedbackSeverityLabel(value) {
+  return {
+    low: "低",
+    normal: "通常",
+    high: "高",
+    critical: "緊急"
+  }[value] || "通常";
+}
+
+function feedbackPriorityLabel(value) {
+  return {
+    low: "低",
+    normal: "通常",
+    high: "高",
+    critical: "最優先"
+  }[value] || "通常";
+}
+
+function formatFeedbackTime(value) {
+  if (!value) return "日時不明";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function feedbackCommentListFor(feedbackId) {
+  return feedbackComments
+    .filter((comment) => comment.feedback_id === feedbackId)
+    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+}
+
+function feedbackCounts() {
+  return feedbackItems.reduce((counts, item) => {
+    counts.all += 1;
+    counts[item.status] = (counts[item.status] || 0) + 1;
+    return counts;
+  }, { all: 0, open: 0, in_progress: 0, resolved: 0, declined: 0 });
+}
+
+function ensureFeedbackNavigation() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav || nav.querySelector('[data-tab="feedback"]')) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "nav-item";
+  button.dataset.tab = "feedback";
+  button.innerHTML = `<span>声</span><small>意見</small>`;
+  const settingsButton = nav.querySelector('[data-tab="settings"]');
+  nav.insertBefore(button, settingsButton || null);
+  navItems = document.querySelectorAll(".nav-item");
+  button.addEventListener("click", () => { void switchTab("feedback"); });
+}
+
+function renderFeedbackFilters(counts) {
+  return `<div class="feedback-filter-tabs">${FEEDBACK_STATUS_OPTIONS.map((option) => {
+    const count = counts[option.value] || 0;
+    return `<button class="ranking-filter-button ${feedbackStatusFilter === option.value ? "active" : ""}" type="button" data-feedback-status-filter="${option.value}">${escapeHtml(option.label)}（${count}）</button>`;
+  }).join("")}</div>`;
+}
+
+function renderFeedbackCreateForm() {
+  if (!feedbackShowCreateForm) return "";
+  return `<form id="feedbackCreateForm" class="feedback-create-form">
+    <div class="feedback-form-heading"><div><p class="eyebrow">NEW FEEDBACK</p><h3>意見を投稿</h3></div><button id="feedbackCloseCreateButton" class="icon-text-button" type="button">閉じる</button></div>
+    <p class="settings-help">要望、不具合、使いにくい点をそのまま残してください。不具合は、発生した画面と手順も書くと対応しやすくなります。</p>
+    <div class="feedback-form-grid">
+      <label>種別<select name="category"><option value="feature_request">機能要望</option><option value="bug">不具合</option><option value="usability">使いにくい点</option><option value="other">その他</option></select></label>
+      <label>重要度<select name="severity"><option value="low">低</option><option value="normal" selected>通常</option><option value="high">高</option><option value="critical">緊急</option></select></label>
+    </div>
+    <label>件名<input name="title" type="text" maxlength="100" required placeholder="例：役満の入力画面で保存できない"></label>
+    <label>内容<textarea name="body" rows="5" maxlength="2000" required placeholder="何をしたいか、何が起きたかを書いてください。"></textarea></label>
+    <div class="feedback-form-grid">
+      <label>発生した画面・操作（任意）<input name="screenName" type="text" maxlength="100" placeholder="例：対局記録 ＞ 半荘追加"></label>
+      <label>再現手順（任意）<textarea name="reproductionSteps" rows="3" maxlength="2000" placeholder="例：1. 半荘追加 2. ..."></textarea></label>
+    </div>
+    <div class="feedback-form-actions"><button class="primary-button" type="submit">投稿する</button><button id="feedbackCancelCreateButton" class="secondary-button" type="button">キャンセル</button></div>
+    <p class="feedback-form-message"></p>
+  </form>`;
+}
+
+function renderFeedbackComment(comment) {
+  return `<article class="feedback-comment">
+    <div class="feedback-comment-heading"><strong>${escapeHtml(getMemberName(comment.author_member_id))}</strong><time>${escapeHtml(formatFeedbackTime(comment.created_at))}</time></div>
+    <p>${escapeHtml(comment.body || "")}</p>
+  </article>`;
+}
+
+function renderFeedbackManagement(item) {
+  if (!isActiveGroupAdmin()) {
+    return item.admin_note
+      ? `<section class="feedback-admin-note"><p>管理側コメント</p><div>${escapeHtml(item.admin_note)}</div></section>`
+      : "";
+  }
+  return `<details class="feedback-management-details" ${item.status !== "resolved" && item.status !== "declined" ? "open" : ""}>
+    <summary>管理用：対応状況を更新</summary>
+    <form class="feedback-management-form" data-feedback-management-id="${item.id}">
+      <div class="feedback-form-grid">
+        <label>対応状況<select name="status"><option value="open" ${item.status === "open" ? "selected" : ""}>未確認</option><option value="in_progress" ${item.status === "in_progress" ? "selected" : ""}>対応中</option><option value="resolved" ${item.status === "resolved" ? "selected" : ""}>完了</option><option value="declined" ${item.status === "declined" ? "selected" : ""}>見送り</option></select></label>
+        <label>優先度<select name="priority"><option value="low" ${item.priority === "low" ? "selected" : ""}>低</option><option value="normal" ${item.priority === "normal" ? "selected" : ""}>通常</option><option value="high" ${item.priority === "high" ? "selected" : ""}>高</option><option value="critical" ${item.priority === "critical" ? "selected" : ""}>最優先</option></select></label>
+      </div>
+      <label>管理側コメント<textarea name="adminNote" rows="3" maxlength="2000" placeholder="対応内容・見送り理由など">${escapeHtml(item.admin_note || "")}</textarea></label>
+      <div class="feedback-form-actions"><button class="secondary-button" type="submit">管理内容を保存</button></div>
+      <p class="feedback-management-message"></p>
+    </form>
+  </details>`;
+}
+
+function renderFeedbackItem(item) {
+  const expanded = feedbackExpandedId === item.id;
+  const comments = feedbackCommentListFor(item.id);
+  const admin = isActiveGroupAdmin();
+  const screen = item.screen_name ? `<div class="feedback-context-row"><span>画面・操作</span><strong>${escapeHtml(item.screen_name)}</strong></div>` : "";
+  const steps = item.reproduction_steps ? `<section class="feedback-steps"><p>再現手順</p><div>${escapeHtml(item.reproduction_steps)}</div></section>` : "";
+  const adminNote = !admin && item.admin_note ? renderFeedbackManagement(item) : "";
+  const expandedContent = expanded ? `<div class="feedback-expanded-content">
+    ${screen}
+    ${steps}
+    ${admin ? renderFeedbackManagement(item) : adminNote}
+    <section class="feedback-comments-section">
+      <div class="feedback-comments-heading"><strong>コメント</strong><span>${comments.length}件</span></div>
+      <div class="feedback-comment-list">${comments.length ? comments.map(renderFeedbackComment).join("") : `<p class="feedback-empty-comments">まだコメントはありません。</p>`}</div>
+      <form class="feedback-comment-form" data-feedback-comment-id="${item.id}">
+        <label>コメント<textarea name="body" rows="3" maxlength="1000" required placeholder="補足、同じ不具合の報告、解決確認など"></textarea></label>
+        <div class="feedback-form-actions"><button class="secondary-button" type="submit">コメントを追加</button></div>
+        <p class="feedback-comment-message"></p>
+      </form>
+    </section>
+  </div>` : "";
+
+  return `<article class="feedback-item-card ${expanded ? "open" : ""}">
+    <button type="button" class="feedback-item-toggle" data-feedback-toggle-id="${item.id}" aria-expanded="${expanded ? "true" : "false"}">
+      <div class="feedback-item-title-block"><div class="feedback-badge-row"><span class="feedback-category-badge ${escapeHtml(item.category)}">${escapeHtml(feedbackCategoryLabel(item.category))}</span><span class="feedback-status-badge ${escapeHtml(item.status)}">${escapeHtml(feedbackStatusLabel(item.status))}</span><span class="feedback-severity-badge ${escapeHtml(item.severity)}">重要度：${escapeHtml(feedbackSeverityLabel(item.severity))}</span></div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(getMemberName(item.author_member_id))} ／ ${escapeHtml(formatFeedbackTime(item.created_at))}</small></div>
+      <span class="feedback-toggle-icon">${expanded ? "−" : "＋"}</span>
+    </button>
+    <div class="feedback-item-body"><p>${escapeHtml(item.body || "")}</p></div>
+    <div class="feedback-item-meta"><span>優先度：${escapeHtml(feedbackPriorityLabel(item.priority))}</span><span>最終更新：${escapeHtml(formatFeedbackTime(item.updated_at || item.created_at))}</span></div>
+    ${expandedContent}
+  </article>`;
+}
+
+function renderFeedbackPage() {
+  const page = getPageWorkspace();
+  if (!currentSession) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">FEEDBACK</p><h2>ログインが必要です</h2><p class="workspace-description">意見・不具合の投稿と確認にはログインしてください。</p><button id="feedbackBackHomeButton" class="primary-button" type="button">ホームへ戻る</button></section>`;
+    document.getElementById("feedbackBackHomeButton")?.addEventListener("click", () => { void switchTab("home"); });
+    return;
+  }
+  if (!getActiveGroup()) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">FEEDBACK</p><h2>先にグループを選択してください</h2><p class="workspace-description">フィードバックはグループ単位で共有されます。</p><button id="feedbackBackHomeButton" class="primary-button" type="button">ホームへ戻る</button></section>`;
+    document.getElementById("feedbackBackHomeButton")?.addEventListener("click", () => { void switchTab("home"); });
+    return;
+  }
+
+  const counts = feedbackCounts();
+  const records = feedbackStatusFilter === "all"
+    ? feedbackItems
+    : feedbackItems.filter((item) => item.status === feedbackStatusFilter);
+  const message = feedbackMessage ? `<p class="feedback-page-message ${feedbackMessageIsError ? "error" : ""}">${escapeHtml(feedbackMessage)}</p>` : "";
+  const createButton = feedbackShowCreateForm
+    ? ""
+    : `<button id="feedbackOpenCreateButton" class="primary-button" type="button">＋ 投稿する</button>`;
+
+  page.innerHTML = `<section class="game-card feedback-page-card">
+    <div class="game-card-heading"><div><p class="eyebrow">TEAM FEEDBACK</p><h2>フィードバック</h2></div>${createButton}</div>
+    <p class="game-description">実際に使って気づいた要望、不具合、使いにくい点を残す場所です。投稿内容と対応状況はグループ内で共有されます。</p>
+    ${message}
+    ${renderFeedbackCreateForm()}
+    <section class="feedback-overview-section">
+      <div class="feedback-overview-grid"><div><span>未確認</span><strong>${counts.open}</strong></div><div><span>対応中</span><strong>${counts.in_progress}</strong></div><div><span>完了</span><strong>${counts.resolved}</strong></div><div><span>合計</span><strong>${counts.all}</strong></div></div>
+      ${renderFeedbackFilters(counts)}
+    </section>
+    <div class="feedback-list">${records.length ? records.map(renderFeedbackItem).join("") : `<p class="feedback-empty-state">${feedbackStatusFilter === "all" ? "まだ投稿はありません。使って気づいた点を最初の1件として残してください。" : "この状態の投稿はありません。"}</p>`}</div>
+  </section>`;
+  bindFeedbackPageEvents();
+}
+
+function setFeedbackMessage(message, isError = false) {
+  feedbackMessage = message;
+  feedbackMessageIsError = isError;
+}
+
+async function loadFeedbackData() {
+  const page = getPageWorkspace();
+  if (!currentSession || !activeGroupId) {
+    feedbackItems = [];
+    feedbackComments = [];
+    renderFeedbackPage();
+    return;
+  }
+  page.innerHTML = `<section class="workspace-card loading-card">フィードバックを読み込み中...</section>`;
+  try {
+    const { data: feedbackData, error: feedbackError } = await supabaseClient
+      .from("group_feedback")
+      .select("id, group_id, author_member_id, category, title, body, screen_name, reproduction_steps, severity, status, priority, admin_note, created_at, updated_at")
+      .eq("group_id", activeGroupId)
+      .order("updated_at", { ascending: false });
+    if (feedbackError) throw feedbackError;
+    feedbackItems = feedbackData || [];
+    const ids = feedbackItems.map((item) => item.id);
+    if (ids.length) {
+      const { data: commentData, error: commentError } = await supabaseClient
+        .from("group_feedback_comments")
+        .select("id, feedback_id, author_member_id, body, created_at")
+        .in("feedback_id", ids)
+        .order("created_at", { ascending: true });
+      if (commentError) throw commentError;
+      feedbackComments = commentData || [];
+    } else {
+      feedbackComments = [];
+    }
+    renderFeedbackPage();
+  } catch (error) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">FEEDBACK</p><h2>フィードバックを読み込めませんでした</h2><p class="workspace-description">${escapeHtml(error.message || "通信状態を確認してください。")}</p><button id="retryFeedbackButton" class="primary-button" type="button">再読み込み</button></section>`;
+    document.getElementById("retryFeedbackButton")?.addEventListener("click", () => { void loadFeedbackData(); });
+  }
+}
+
+function bindFeedbackPageEvents() {
+  document.getElementById("feedbackOpenCreateButton")?.addEventListener("click", () => {
+    feedbackShowCreateForm = true;
+    feedbackMessage = "";
+    feedbackMessageIsError = false;
+    renderFeedbackPage();
+  });
+  document.getElementById("feedbackCloseCreateButton")?.addEventListener("click", () => {
+    feedbackShowCreateForm = false;
+    renderFeedbackPage();
+  });
+  document.getElementById("feedbackCancelCreateButton")?.addEventListener("click", () => {
+    feedbackShowCreateForm = false;
+    renderFeedbackPage();
+  });
+  document.querySelectorAll("[data-feedback-status-filter]").forEach((button) => button.addEventListener("click", () => {
+    feedbackStatusFilter = button.dataset.feedbackStatusFilter || "all";
+    renderFeedbackPage();
+  }));
+  document.querySelectorAll("[data-feedback-toggle-id]").forEach((button) => button.addEventListener("click", () => {
+    const id = button.dataset.feedbackToggleId;
+    feedbackExpandedId = feedbackExpandedId === id ? "" : id;
+    renderFeedbackPage();
+  }));
+
+  const createForm = document.getElementById("feedbackCreateForm");
+  createForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (feedbackBusy) return;
+    const form = event.currentTarget;
+    const submit = form.querySelector('button[type="submit"]');
+    const message = form.querySelector(".feedback-form-message");
+    const values = new FormData(form);
+    feedbackBusy = true;
+    submit.disabled = true;
+    message.textContent = "投稿しています…";
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("create_group_feedback", {
+        p_group_id: activeGroupId,
+        p_category: String(values.get("category") || "other"),
+        p_title: String(values.get("title") || ""),
+        p_body: String(values.get("body") || ""),
+        p_screen_name: String(values.get("screenName") || ""),
+        p_reproduction_steps: String(values.get("reproductionSteps") || ""),
+        p_severity: String(values.get("severity") || "normal")
+      });
+      if (error) throw error;
+      feedbackShowCreateForm = false;
+      setFeedbackMessage("投稿しました。グループ内のメンバーが内容を確認できます。");
+      await loadFeedbackData();
+    } catch (error) {
+      message.textContent = error.message || "投稿できませんでした。";
+    } finally {
+      feedbackBusy = false;
+      if (submit?.isConnected) submit.disabled = false;
+    }
+  });
+
+  document.querySelectorAll(".feedback-comment-form").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (feedbackBusy) return;
+    const targetForm = event.currentTarget;
+    const feedbackId = targetForm.dataset.feedbackCommentId;
+    const submit = targetForm.querySelector('button[type="submit"]');
+    const message = targetForm.querySelector(".feedback-comment-message");
+    const values = new FormData(targetForm);
+    feedbackBusy = true;
+    submit.disabled = true;
+    message.textContent = "追加しています…";
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("add_group_feedback_comment", {
+        p_feedback_id: feedbackId,
+        p_body: String(values.get("body") || "")
+      });
+      if (error) throw error;
+      setFeedbackMessage("コメントを追加しました。");
+      await loadFeedbackData();
+    } catch (error) {
+      message.textContent = error.message || "コメントを追加できませんでした。";
+    } finally {
+      feedbackBusy = false;
+      if (submit?.isConnected) submit.disabled = false;
+    }
+  }));
+
+  document.querySelectorAll(".feedback-management-form").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (feedbackBusy) return;
+    const targetForm = event.currentTarget;
+    const feedbackId = targetForm.dataset.feedbackManagementId;
+    const submit = targetForm.querySelector('button[type="submit"]');
+    const message = targetForm.querySelector(".feedback-management-message");
+    const values = new FormData(targetForm);
+    feedbackBusy = true;
+    submit.disabled = true;
+    message.textContent = "保存しています…";
+    try {
+      markLocalRealtimeWrite();
+      const { error } = await supabaseClient.rpc("update_group_feedback_management", {
+        p_feedback_id: feedbackId,
+        p_status: String(values.get("status") || "open"),
+        p_priority: String(values.get("priority") || "normal"),
+        p_admin_note: String(values.get("adminNote") || "")
+      });
+      if (error) throw error;
+      setFeedbackMessage("対応状況を更新しました。");
+      await loadFeedbackData();
+    } catch (error) {
+      message.textContent = error.message || "対応状況を更新できませんでした。";
+    } finally {
+      feedbackBusy = false;
+      if (submit?.isConnected) submit.disabled = false;
+    }
+  }));
+}
+
+const switchTabV32 = switchTab;
+switchTab = async function(tab) {
+  if (tab !== "feedback") return switchTabV32(tab);
+  currentTab = "feedback";
+  navItems.forEach((item) => item.classList.toggle("active", item.dataset.tab === "feedback"));
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  getPageWorkspace().hidden = false;
+  await loadFeedbackData();
+};
+
+const refreshCurrentViewFromRealtimeV32 = refreshCurrentViewFromRealtime;
+refreshCurrentViewFromRealtime = async function(force = false) {
+  if (currentTab === "feedback") {
+    clearRealtimeRefreshTimer();
+    if (!currentSession || !activeGroupId) return;
+    if (!force && isRealtimeInputInProgress()) {
+      realtimePendingRefresh = true;
+      showRealtimeUpdateBanner();
+      return;
+    }
+    realtimePendingRefresh = false;
+    removeRealtimeUpdateBanner();
+    try { await loadFeedbackData(); }
+    catch (error) { console.warn("フィードバックのRealtime更新に失敗しました。", error); }
+    return;
+  }
+  return refreshCurrentViewFromRealtimeV32(force);
+};
+
+const isRelevantRealtimePayloadV32 = isRelevantRealtimePayload;
+isRelevantRealtimePayload = function(payload) {
+  const row = getRealtimeRow(payload);
+  if (payload?.table === "group_feedback") return row.group_id === activeGroupId;
+  if (payload?.table === "group_feedback_comments") {
+    return currentTab === "feedback" || feedbackItems.some((item) => item.id === row.feedback_id);
+  }
+  return isRelevantRealtimePayloadV32(payload);
+};
+
+const isRealtimeInputInProgressV32 = isRealtimeInputInProgress;
+isRealtimeInputInProgress = function() {
+  if (document.activeElement?.closest(".feedback-create-form, .feedback-comment-form, .feedback-management-form")) return true;
+  return isRealtimeInputInProgressV32();
+};
+
+const stopRealtimeSubscriptionsV32 = stopRealtimeSubscriptions;
+stopRealtimeSubscriptions = async function() {
+  if (feedbackRealtimeChannel && supabaseClient) {
+    try { await supabaseClient.removeChannel(feedbackRealtimeChannel); }
+    catch (error) { console.warn("フィードバックのRealtime接続終了に失敗しました。", error); }
+  }
+  feedbackRealtimeChannel = null;
+  feedbackRealtimeGroupId = null;
+  return stopRealtimeSubscriptionsV32();
+};
+
+const setupRealtimeSubscriptionsV32 = setupRealtimeSubscriptions;
+setupRealtimeSubscriptions = async function() {
+  await setupRealtimeSubscriptionsV32();
+  if (!supabaseClient || !currentSession || !activeGroupId) return;
+  if (feedbackRealtimeChannel && feedbackRealtimeGroupId === activeGroupId) return;
+  if (feedbackRealtimeChannel) {
+    try { await supabaseClient.removeChannel(feedbackRealtimeChannel); } catch (_) {}
+  }
+  const groupId = activeGroupId;
+  feedbackRealtimeChannel = supabaseClient.channel(`jakuroku-feedback-${groupId}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "group_feedback", filter: `group_id=eq.${groupId}` }, handleRealtimePayload)
+    .on("postgres_changes", { event: "*", schema: "public", table: "group_feedback_comments" }, handleRealtimePayload)
+    .subscribe();
+  feedbackRealtimeGroupId = groupId;
+};
+
+const switchActiveGroupV32 = switchActiveGroup;
+switchActiveGroup = async function(groupId) {
+  await switchActiveGroupV32(groupId);
+  feedbackItems = [];
+  feedbackComments = [];
+  feedbackExpandedId = "";
+  feedbackStatusFilter = "all";
+  feedbackShowCreateForm = false;
+  feedbackMessage = "";
+  feedbackMessageIsError = false;
+  if (currentTab === "feedback") await loadFeedbackData();
+};
+
+const updateAuthUIV32 = updateAuthUI;
+updateAuthUI = async function(session) {
+  await updateAuthUIV32(session);
+  if (!session) {
+    feedbackItems = [];
+    feedbackComments = [];
+    feedbackExpandedId = "";
+    feedbackShowCreateForm = false;
+    feedbackMessage = "";
+    feedbackMessageIsError = false;
+  }
+};
+
+ensureFeedbackNavigation();

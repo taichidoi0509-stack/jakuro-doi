@@ -868,3 +868,80 @@ button.history-calendar-cell { cursor: pointer; }
 @media (max-width: 620px) {
   .backup-restore-option-grid { grid-template-columns: 1fr; }
 }
+
+/* v33: team feedback board */
+.nav-item[data-tab="feedback"] span { font-size: 17px; font-weight: 900; }
+.feedback-page-card { margin-bottom: 12px; }
+.feedback-page-message { margin: 15px 0 0; padding: 10px 12px; border-radius: 11px; background: #e4f4e8; color: #237238; font-size: 11px; font-weight: 800; line-height: 1.55; }
+.feedback-page-message.error { background: #fff0f0; color: #a62929; }
+.feedback-overview-section { margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--line); }
+.feedback-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.feedback-overview-grid > div { min-width: 0; padding: 11px 9px; border: 1px solid #dbe7df; border-radius: 12px; background: #fbfefc; text-align: center; }
+.feedback-overview-grid span { display: block; color: var(--muted); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.feedback-overview-grid strong { display: block; margin-top: 3px; color: var(--green); font-size: 18px; }
+.feedback-filter-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.feedback-create-form { display: grid; gap: 12px; margin-top: 16px; padding: 14px; border: 1px solid #cfe1d7; border-radius: 15px; background: #fbfefc; }
+.feedback-form-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.feedback-form-heading h3 { margin: 5px 0 0; color: var(--ink); font-size: 16px; }
+.feedback-create-form label, .feedback-comment-form label, .feedback-management-form label { display: grid; gap: 6px; color: var(--ink); font-size: 10px; font-weight: 900; }
+.feedback-create-form input, .feedback-create-form select, .feedback-create-form textarea, .feedback-comment-form textarea, .feedback-management-form select, .feedback-management-form textarea { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; outline: none; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+.feedback-create-form textarea, .feedback-comment-form textarea, .feedback-management-form textarea { resize: vertical; line-height: 1.55; }
+.feedback-create-form input:focus, .feedback-create-form select:focus, .feedback-create-form textarea:focus, .feedback-comment-form textarea:focus, .feedback-management-form select:focus, .feedback-management-form textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(13,59,46,.12); }
+.feedback-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.feedback-form-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.feedback-form-message, .feedback-comment-message, .feedback-management-message { min-height: 1.2em; margin: 0; color: var(--danger); font-size: 10px; font-weight: 800; line-height: 1.45; }
+.feedback-list { display: grid; gap: 10px; margin-top: 14px; }
+.feedback-empty-state { margin: 0; padding: 20px 14px; border: 1px dashed #c8d4cd; border-radius: 13px; color: var(--muted); font-size: 11px; line-height: 1.65; text-align: center; }
+.feedback-item-card { overflow: hidden; border: 1px solid #d9e2dc; border-radius: 15px; background: #fff; }
+.feedback-item-card.open { border-color: #a8c9b3; box-shadow: 0 5px 16px rgba(13,59,46,.06); }
+.feedback-item-toggle { display: flex; width: 100%; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 13px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.feedback-item-title-block { display: grid; min-width: 0; gap: 6px; }
+.feedback-item-title-block > strong { overflow: hidden; font-size: 14px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.feedback-item-title-block > small { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.feedback-badge-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.feedback-category-badge, .feedback-status-badge, .feedback-severity-badge { display: inline-flex; align-items: center; min-height: 21px; padding: 4px 6px; border-radius: 999px; font-size: 8px; font-weight: 900; white-space: nowrap; }
+.feedback-category-badge.feature_request { background: #e7f3ed; color: #28734c; }
+.feedback-category-badge.bug { background: #fff0f0; color: #aa3030; }
+.feedback-category-badge.usability { background: #fff3e4; color: #98580e; }
+.feedback-category-badge.other { background: #edf0f3; color: #63707b; }
+.feedback-status-badge.open { background: #eef1ef; color: #657069; }
+.feedback-status-badge.in_progress { background: #e9edf8; color: #4c5790; }
+.feedback-status-badge.resolved { background: #e1f2e7; color: #237238; }
+.feedback-status-badge.declined { background: #f2eeee; color: #7b6262; }
+.feedback-severity-badge.low { background: #eef4ef; color: #5d7c65; }
+.feedback-severity-badge.normal { background: #eef1ef; color: #657069; }
+.feedback-severity-badge.high { background: #fff1df; color: #995309; }
+.feedback-severity-badge.critical { background: #ffe7e7; color: #a62929; }
+.feedback-toggle-icon { display: grid; flex: 0 0 auto; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #f1f5f2; color: var(--green); font-size: 18px; font-weight: 700; }
+.feedback-item-body { padding: 0 13px 10px; }
+.feedback-item-body p { margin: 0; color: #45504a; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }
+.feedback-item-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 9px 13px; border-top: 1px solid #eef1ef; background: #fbfcfb; color: var(--muted); font-size: 9px; font-weight: 800; }
+.feedback-expanded-content { padding: 13px; border-top: 1px solid #dbe6df; background: #fcfefc; }
+.feedback-context-row { display: grid; grid-template-columns: 72px 1fr; gap: 9px; align-items: start; padding: 10px; border: 1px solid #e2ebe5; border-radius: 11px; background: #fff; }
+.feedback-context-row span, .feedback-steps > p, .feedback-admin-note > p { margin: 0; color: var(--muted); font-size: 9px; font-weight: 900; }
+.feedback-context-row strong { color: var(--ink); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.feedback-steps, .feedback-admin-note { margin-top: 10px; padding: 11px; border: 1px solid #e2ebe5; border-radius: 11px; background: #fff; }
+.feedback-steps > div, .feedback-admin-note > div { margin-top: 6px; color: #45504a; font-size: 11px; line-height: 1.6; white-space: pre-wrap; }
+.feedback-management-details { margin-top: 10px; padding: 10px; border: 1px solid #d8e3dd; border-radius: 12px; background: #f5faf7; }
+.feedback-management-details summary { cursor: pointer; color: var(--green); font-size: 10px; font-weight: 900; }
+.feedback-management-form { display: grid; gap: 10px; margin-top: 10px; }
+.feedback-comments-section { margin-top: 13px; padding-top: 12px; border-top: 1px solid #dce6e0; }
+.feedback-comments-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.feedback-comments-heading strong { color: var(--ink); font-size: 12px; }
+.feedback-comments-heading span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.feedback-comment-list { display: grid; gap: 7px; margin-top: 9px; }
+.feedback-comment { padding: 10px; border: 1px solid #e3ebe6; border-radius: 11px; background: #fff; }
+.feedback-comment-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.feedback-comment-heading strong { color: var(--ink); font-size: 10px; }
+.feedback-comment-heading time { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.feedback-comment p { margin: 7px 0 0; color: #45504a; font-size: 10px; line-height: 1.6; white-space: pre-wrap; }
+.feedback-empty-comments { margin: 0; padding: 10px; color: var(--muted); font-size: 10px; text-align: center; }
+.feedback-comment-form { display: grid; gap: 8px; margin-top: 10px; }
+
+@media (max-width: 560px) {
+  .feedback-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feedback-form-grid { grid-template-columns: 1fr; }
+  .feedback-item-title-block > strong { white-space: normal; }
+  .feedback-context-row { grid-template-columns: 1fr; gap: 4px; }
+  .feedback-item-toggle { padding: 12px; }
+}
