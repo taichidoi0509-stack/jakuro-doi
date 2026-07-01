@@ -1,0 +1,17 @@
+{
+  "name": "雀録 - 麻雀成績管理",
+  "short_name": "雀録",
+  "description": "3人打ち・4人打ち対応の麻雀スコア・成績管理アプリ",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f4ef",
+  "theme_color": "#0d3b2e",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
