@@ -7250,3 +7250,163 @@ createMatchSession = async function(event) {
   }
   return createMatchSessionBeforeV40(event);
 };
+
+/* v41: grouped operational UI refinements */
+function buildAnalyticsDashboardV41() {
+  const page = getPageWorkspace();
+  navigationHubV34 = "analytics";
+  currentTab = "hub-analytics";
+  setPrimaryNavActiveV34("analytics");
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  page.hidden = false;
+
+  const settled = sessionList.filter((session) => session.status === "settled");
+  const recent = settled.slice(0, 4);
+  const recentMarkup = recent.length ? recent.map((session) => `
+    <button type="button" class="v41-mini-session" data-v41-open-history="${session.id}">
+      <span>${escapeHtml(formatDate(session.session_date))}</span>
+      <strong>${escapeHtml(getModeLabel(session.game_mode))}</strong>
+      <small>${escapeHtml(session.rate_label || "レート未設定")}</small>
+      <b>›</b>
+    </button>
+  `).join("") : `<div class="v41-empty-inline"><strong>精算済みの対局がありません。</strong><span>日次精算を確定すると、ランキングと分析が表示されます。</span><button type="button" data-v41-go-game>対局を作成</button></div>`;
+
+  page.innerHTML = `
+    <section class="v41-dashboard v41-analytics-dashboard">
+      <header class="v41-dashboard-heading">
+        <div><p class="eyebrow">ANALYTICS</p><h2>成績を確認</h2><p>まず全体像を見て、必要な分析へ進みます。</p></div>
+        <span class="v41-dashboard-badge">精算済み ${settled.length}日</span>
+      </header>
+      <section class="v41-feature-hero">
+        <div><span class="v41-feature-icon">↗</span><p>RANKING</p><h3>ランキング・成績詳細</h3><small>総合pt、素点pt、チップ、形式別・レート別の成績を確認します。</small></div>
+        <button type="button" data-v41-go-ranking>ランキングを見る</button>
+      </section>
+      <section class="v41-dashboard-grid">
+        <button type="button" class="v41-dashboard-tile" data-v41-go-ranking><span>☷</span><strong>総合ランキング</strong><small>期間・形式・レートで絞り込み</small></button>
+        <button type="button" class="v41-dashboard-tile" data-v41-go-venue><span>⌂</span><strong>会場別集計</strong><small>会場ごとの対局数・場代・成績</small></button>
+      </section>
+      <section class="v41-recent-section"><div class="v41-section-heading"><div><p class="eyebrow">RECENT SETTLEMENTS</p><h3>最近精算した対局</h3></div><button type="button" data-v41-go-history>履歴を見る</button></div><div class="v41-mini-session-list">${recentMarkup}</div></section>
+    </section>
+  `;
+  page.querySelector("[data-v41-go-ranking]")?.addEventListener("click", () => void openNavigationFeatureV34("ranking"));
+  page.querySelector("[data-v41-go-venue]")?.addEventListener("click", () => void openNavigationFeatureV34("venue-analysis"));
+  page.querySelector("[data-v41-go-history]")?.addEventListener("click", () => void openNavigationFeatureV34("history"));
+  page.querySelector("[data-v41-go-game]")?.addEventListener("click", () => void openNavigationFeatureV34("game-session"));
+  page.querySelectorAll("[data-v41-open-history]").forEach((button) => button.addEventListener("click", async () => {
+    activeMatchSessionId = button.dataset.v41OpenHistory;
+    localStorage.setItem("jakuroku-active-match-session-id", activeMatchSessionId);
+    await openNavigationFeatureV34("game-session");
+  }));
+  window.scrollTo(0, 0);
+}
+
+function buildSettlementDashboardV41() {
+  const page = getPageWorkspace();
+  navigationHubV34 = "debt";
+  currentTab = "hub-debt";
+  setPrimaryNavActiveV34("debt");
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  page.hidden = false;
+
+  const open = debtRecords.filter((record) => record.status === "open" && num(record.remaining_amount_pt) > 0.004);
+  const total = open.reduce((sum, record) => sum + num(record.remaining_amount_pt), 0);
+  page.innerHTML = `
+    <section class="v41-dashboard v41-settlement-dashboard">
+      <header class="v41-dashboard-heading">
+        <div><p class="eyebrow">SETTLEMENT</p><h2>精算を管理</h2><p>未精算の借ptと、精算済み対局の送金内容を確認します。</p></div>
+        <span class="v41-dashboard-badge">未精算 ${open.length}件</span>
+      </header>
+      <section class="v41-feature-hero v41-settlement-hero">
+        <div><span class="v41-feature-icon">⇄</span><p>OPEN BALANCE</p><h3>${formatPtPlain(total)}</h3><small>${open.length ? "未精算の借ptがあります。支払い記録・横流しを管理できます。" : "未精算の借ptはありません。"}</small></div>
+        <button type="button" data-v41-go-debt>借ptを管理</button>
+      </section>
+      <section class="v41-dashboard-grid">
+        <button type="button" class="v41-dashboard-tile" data-v41-go-debt><span>⇄</span><strong>借pt一覧</strong><small>支払い・一部支払い・横流し</small></button>
+        <button type="button" class="v41-dashboard-tile" data-v41-go-history><span>▣</span><strong>日次精算を確認</strong><small>過去対局の場代・送金ルート</small></button>
+      </section>
+      <section class="v41-operation-note"><strong>使い方</strong><span>対局を精算確定すると送金ルートが表示されます。必要なものだけ「借ptへ登録」で残してください。</span></section>
+    </section>
+  `;
+  page.querySelector("[data-v41-go-debt]")?.addEventListener("click", () => void openNavigationFeatureV34("debt-manage"));
+  page.querySelector("[data-v41-go-history]")?.addEventListener("click", () => void openNavigationFeatureV34("history"));
+  window.scrollTo(0, 0);
+}
+
+const renderNavigationHubBeforeV41 = renderNavigationHubV34;
+renderNavigationHubV34 = function(area) {
+  if (area === "analytics") return buildAnalyticsDashboardV41();
+  if (area === "debt") return buildSettlementDashboardV41();
+  return renderNavigationHubBeforeV41(area);
+};
+
+function getSectionTitleV41(section) {
+  return String(section.querySelector(".game-section-title")?.textContent || "").trim();
+}
+
+function mountSessionFlowV41() {
+  const page = getPageWorkspace();
+  const gameCard = page.querySelector(".game-card");
+  const session = activeMatchSession;
+  if (!gameCard || !session || gameCard.querySelector(".session-flow-v41")) return;
+
+  const titleToKey = {
+    "半荘記録": "hanchan",
+    "終了時チップ": "chips",
+    "場代精算": "venue",
+    "場代込み最終精算": "settlement"
+  };
+  gameCard.querySelectorAll(":scope > .game-section").forEach((section) => {
+    const key = titleToKey[getSectionTitleV41(section)];
+    if (key) section.dataset.v41FlowSection = key;
+  });
+  const firstSection = gameCard.querySelector("[data-v41-flow-section='hanchan']");
+  const flow = document.createElement("section");
+  flow.className = "session-flow-v41";
+  const completed = {
+    hanchan: activeHanchans.length > 0,
+    chips: hasAllChips(),
+    venue: hasMatchingVenuePrepayments(),
+    settlement: session.status === "settled"
+  };
+  const steps = [
+    ["hanchan", "1", "半荘入力", activeHanchans.length ? `${activeHanchans.length}半荘` : "未入力"],
+    ["chips", "2", "チップ", completed.chips ? "入力済み" : "未入力"],
+    ["venue", "3", "場代", completed.venue ? "照合済み" : "確認待ち"],
+    ["settlement", "4", "精算", completed.settlement ? "確定済み" : "未確定"]
+  ];
+  flow.innerHTML = `
+    <div class="session-flow-heading-v41"><div><p class="eyebrow">SESSION FLOW</p><h3>${session.status === "settled" ? "この日の精算結果" : "この日の入力・精算手順"}</h3></div><small>${session.status === "settled" ? "記録は編集できます" : "上から順に確認すると漏れません"}</small></div>
+    <div class="session-flow-steps-v41">${steps.map(([key, number, label, state]) => `<button type="button" class="session-flow-step-v41 ${completed[key] ? "complete" : ""}" data-v41-flow-go="${key}"><span>${completed[key] ? "✓" : number}</span><strong>${label}</strong><small>${state}</small></button>`).join("")}</div>
+  `;
+  (firstSection || gameCard.querySelector(".session-info-grid"))?.insertAdjacentElement("afterend", flow);
+  flow.querySelectorAll("[data-v41-flow-go]").forEach((button) => button.addEventListener("click", () => {
+    const key = button.dataset.v41FlowGo;
+    const target = gameCard.querySelector(`[data-v41-flow-section='${key}']`);
+    if (!target) return;
+    if (key === "hanchan" && !showHanchanEditor && session.status === "open") document.getElementById("toggleHanchanEditorButton")?.click();
+    if (key === "chips" && !showChipEditor) document.getElementById("toggleChipEditorButton")?.click();
+    if (key === "venue" && !showVenueEditor) document.getElementById("toggleVenueEditorButton")?.click();
+    requestAnimationFrame(() => (gameCard.querySelector(`[data-v41-flow-section='${key}']`) || target).scrollIntoView({ behavior: "smooth", block: "start" }));
+  }));
+}
+
+const renderActiveSessionViewBeforeV41 = renderActiveSessionView;
+renderActiveSessionView = function() {
+  renderActiveSessionViewBeforeV41();
+  mountSessionFlowV41();
+};
+
+function addEmptyStateActionsV41() {
+  document.querySelectorAll(".game-empty-result, .ranking-empty-card, .home-empty-card, .v41-empty-inline").forEach((element) => {
+    element.classList.add("empty-state-v41");
+  });
+}
+const renderMatchPageBeforeV41 = renderMatchPage;
+renderMatchPage = function() {
+  renderMatchPageBeforeV41();
+  addEmptyStateActionsV41();
+};
