@@ -1,4 +1,4 @@
-const CACHE_NAME = "jakuro-v36";
+const CACHE_NAME = "jakuro-v37";
 
 const APP_SHELL = [
   "./",

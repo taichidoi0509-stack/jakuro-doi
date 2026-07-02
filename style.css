@@ -1109,3 +1109,78 @@ button.history-calendar-cell { cursor: pointer; }
   .match-dashboard-command small { font-size: 7px; }
   .match-dashboard-stat { min-height: 94px; padding: 11px 8px; }
 }
+
+/* v37: wider, icon-led bottom navigation */
+.app-shell { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+.bottom-nav {
+  box-sizing: border-box;
+  min-height: 84px;
+  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(207, 220, 212, .9);
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 -8px 24px rgba(22, 42, 32, .06);
+}
+.nav-item-v37 {
+  min-width: 0;
+  min-height: 70px;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 3px;
+  border-radius: 14px;
+  color: #708078;
+  transition: color .15s ease, background .15s ease, transform .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.nav-item-v37:active { transform: scale(.96); }
+.nav-item-v37 .nav-icon-v37 {
+  display: grid;
+  width: 34px;
+  height: 30px;
+  place-items: center;
+  border-radius: 10px;
+  color: currentColor;
+}
+.nav-item-v37 .nav-icon-v37 svg {
+  width: 21px;
+  height: 21px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nav-item-v37 small {
+  max-width: 100%;
+  overflow: visible;
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .01em;
+  line-height: 1.1;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.nav-item-v37.active {
+  background: #e9f5ed;
+  color: var(--green);
+}
+.nav-item-v37.active .nav-icon-v37 {
+  background: rgba(255, 255, 255, .7);
+  box-shadow: 0 2px 5px rgba(13, 59, 46, .08);
+}
+.nav-item-v37.active small { font-weight: 900; }
+
+@media (min-width: 680px) {
+  .bottom-nav { padding-right: 14px; padding-left: 14px; }
+  .nav-item-v37 { min-height: 72px; }
+  .nav-item-v37 .nav-icon-v37 { width: 38px; }
+}
+
+@media (max-width: 360px) {
+  .bottom-nav { padding-right: 5px; padding-left: 5px; }
+  .nav-item-v37 { min-height: 68px; padding-right: 1px; padding-left: 1px; }
+  .nav-item-v37 .nav-icon-v37 { width: 30px; height: 28px; }
+  .nav-item-v37 .nav-icon-v37 svg { width: 20px; height: 20px; }
+  .nav-item-v37 small { font-size: 9px; }
+}

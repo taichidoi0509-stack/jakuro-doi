@@ -7047,3 +7047,58 @@ updateAuthUI = async function(session) {
   if (!session) resetMatchDashboardStateV36();
   await updateAuthUIBeforeV36(session);
 };
+
+/* v37: bottom navigation visual refresh */
+function navIconV37(name) {
+  const common = 'viewBox="0 0 24 24" aria-hidden="true" focusable="false"';
+  const icons = {
+    home: `<svg ${common}><path d="M3.5 10.7 12 3.8l8.5 6.9v9.1a1.2 1.2 0 0 1-1.2 1.2H4.7a1.2 1.2 0 0 1-1.2-1.2v-9.1Z"></path><path d="M9 21v-6.3h6V21"></path></svg>`,
+    match: `<svg ${common}><rect x="3.2" y="5.1" width="8.2" height="13.8" rx="1.4"></rect><rect x="12.6" y="5.1" width="8.2" height="13.8" rx="1.4"></rect><path d="M5.9 8.1h2.8M5.9 11.1h2.8M5.9 14.1h2.8M15.3 8.1h2.8M15.3 11.1h2.8M15.3 14.1h2.8"></path></svg>`,
+    analytics: `<svg ${common}><path d="M4 19.5h16"></path><path d="M5.3 16.7 10 12l3.2 2.7 5.5-7"></path><path d="M15.8 7.7h2.9v2.9"></path></svg>`,
+    settle: `<svg ${common}><path d="M4 7.5h12.5"></path><path d="m13.4 4.5 3 3-3 3"></path><path d="M20 16.5H7.5"></path><path d="m10.6 19.5-3-3 3-3"></path><circle cx="6" cy="7.5" r="1.25"></circle><circle cx="18" cy="16.5" r="1.25"></circle></svg>`,
+    settings: `<svg ${common}><circle cx="12" cy="12" r="3.1"></circle><path d="M19.1 13.6c.1-.5.1-1 .1-1.6s0-1.1-.1-1.6l2-1.5-2-3.4-2.4 1a7.9 7.9 0 0 0-2.7-1.6L13.6 2h-3.9L9.3 4.9a7.9 7.9 0 0 0-2.7 1.6l-2.4-1-2 3.4 2 1.5c-.1.5-.1 1-.1 1.6s0 1.1.1 1.6l-2 1.5 2 3.4 2.4-1a7.9 7.9 0 0 0 2.7 1.6l.4 2.9h3.9l.4-2.9a7.9 7.9 0 0 0 2.7-1.6l2.4 1 2-3.4-2-1.5Z"></path></svg>`
+  };
+  return icons[name] || icons.home;
+}
+
+const PRIMARY_NAV_V37 = [
+  { id: "home", icon: "home", label: "ホーム" },
+  { id: "game", icon: "match", label: "対局" },
+  { id: "analytics", icon: "analytics", label: "分析" },
+  { id: "debt", icon: "settle", label: "精算" },
+  { id: "settings", icon: "settings", label: "設定" }
+];
+
+function configurePrimaryNavigationV37() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav) return;
+  nav.innerHTML = PRIMARY_NAV_V37.map((item) => `
+    <button type="button" class="nav-item nav-item-v37" data-tab="${item.id}" aria-label="${item.label}">
+      <span class="nav-icon-v37">${navIconV37(item.icon)}</span>
+      <small>${item.label}</small>
+    </button>
+  `).join("");
+  navItems = document.querySelectorAll(".nav-item");
+  navItems.forEach((item) => item.addEventListener("click", () => {
+    const area = item.dataset.tab;
+    if (area === "home") {
+      settingsFocusV34 = "";
+      navigationHubV34 = "";
+      void switchTabV33("home");
+      return;
+    }
+    renderNavigationHubV34(area);
+  }));
+  setPrimaryNavActiveV34(primaryAreaForV34());
+}
+
+const setPrimaryNavActiveBeforeV37 = setPrimaryNavActiveV34;
+setPrimaryNavActiveV34 = function(area) {
+  setPrimaryNavActiveBeforeV37(area);
+  navItems.forEach((item) => {
+    const isActive = item.dataset.tab === area;
+    item.setAttribute("aria-current", isActive ? "page" : "false");
+  });
+};
+
+configurePrimaryNavigationV37();
