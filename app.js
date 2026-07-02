@@ -7603,3 +7603,79 @@ renderCreateSessionView = function() {
     window.scrollTo({ top: nextY, behavior: "auto" });
   });
 };
+
+/* v44: exact viewport preservation for create-session selections (iOS/PWA safe) */
+function getCreateInteractiveTargetV44(target) {
+  if (!(target instanceof Element)) return null;
+  const member = target.closest("[data-session-member-id]");
+  if (member) return { key: "member", selector: `[data-session-member-id="${member.dataset.sessionMemberId || ""}"]` };
+  const rate = target.closest("[data-session-field='rateLabel']");
+  if (rate) return { key: "rate", selector: "[data-session-field='rateLabel']" };
+  const mode = target.closest("[data-session-mode]");
+  if (mode) return { key: "mode", selector: `[data-session-mode="${mode.dataset.sessionMode || ""}"]` };
+  return null;
+}
+
+function getCreateScrollRootsV44() {
+  const roots = [];
+  const scrolling = document.scrollingElement;
+  if (scrolling) roots.push(scrolling);
+  if (document.documentElement && !roots.includes(document.documentElement)) roots.push(document.documentElement);
+  if (document.body && !roots.includes(document.body)) roots.push(document.body);
+  const shell = document.querySelector(".app-shell");
+  if (shell && (shell.scrollHeight > shell.clientHeight + 2 || shell.scrollTop)) roots.push(shell);
+  return roots;
+}
+
+function captureCreateViewportV44(target) {
+  const item = getCreateInteractiveTargetV44(target);
+  if (!item) return;
+  const node = document.querySelector(item.selector);
+  if (!node) return;
+  globalThis.__morikenCreateViewportV44 = {
+    ...item,
+    top: node.getBoundingClientRect().top,
+    roots: getCreateScrollRootsV44().map((root) => ({ root, top: root.scrollTop })),
+    windowY: window.scrollY
+  };
+}
+
+function restoreCreateViewportV44(state) {
+  if (!state) return;
+  const apply = () => {
+    const node = document.querySelector(state.selector);
+    if (!node) return;
+    const delta = node.getBoundingClientRect().top - state.top;
+    if (Math.abs(delta) > 0.5) {
+      window.scrollBy(0, delta);
+      getCreateScrollRootsV44().forEach((root) => {
+        if (root === document.scrollingElement || root === document.documentElement || root === document.body) return;
+        const prior = state.roots.find((entry) => entry.root === root);
+        if (prior) root.scrollTop = prior.top + delta;
+      });
+    }
+  };
+  requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
+  setTimeout(apply, 60);
+  setTimeout(apply, 180);
+}
+
+function mountCreateViewportCaptureV44() {
+  const form = document.getElementById("createSessionForm");
+  if (!form || form.dataset.v44ViewportCapture === "1") return;
+  form.dataset.v44ViewportCapture = "1";
+  const capture = (event) => captureCreateViewportV44(event.target);
+  form.addEventListener("pointerdown", capture, true);
+  form.addEventListener("touchstart", capture, { capture: true, passive: true });
+  form.addEventListener("change", capture, true);
+  form.addEventListener("click", capture, true);
+}
+
+const renderCreateSessionViewBeforeV44 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  const restore = globalThis.__morikenCreateViewportV44 || null;
+  globalThis.__morikenCreateViewportV44 = null;
+  renderCreateSessionViewBeforeV44();
+  mountCreateViewportCaptureV44();
+  if (restore) restoreCreateViewportV44(restore);
+};
