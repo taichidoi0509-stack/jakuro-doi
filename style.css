@@ -1185,3 +1185,33 @@ button.history-calendar-cell { cursor: pointer; }
   .nav-item-v37 .nav-icon-v37 svg { width: 20px; height: 20px; }
   .nav-item-v37 small { font-size: 9px; }
 }
+
+/* v39: iPhone status-bar safe area for the brand header */
+.app-header {
+  padding-top: max(22px, calc(env(safe-area-inset-top) + 14px));
+}
+
+@media (max-width: 680px) {
+  .app-header {
+    padding-top: max(60px, calc(env(safe-area-inset-top) + 14px));
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .brand-copy {
+    min-width: 0;
+  }
+
+  .brand-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand h1 {
+    white-space: nowrap;
+    font-size: clamp(17px, 4.6vw, 21px);
+  }
+}
