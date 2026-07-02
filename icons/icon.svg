@@ -1,14 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0d3b2e"/>
-  <rect x="104" y="72" width="304" height="368" rx="42" fill="#f8f5ed"/>
-  <rect x="119" y="87" width="274" height="338" rx="30" fill="none" stroke="#d9d3c7" stroke-width="8"/>
-  <text
-    x="256"
-    y="354"
-    text-anchor="middle"
-    font-family="serif"
-    font-size="270"
-    font-weight="700"
-    fill="#d94343"
-  >中</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">森研麻雀倶楽部</title>
+  <desc id="desc">森の字が書かれた麻雀牌のアプリアイコン</desc>
+  <defs>
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17644B"/>
+      <stop offset="1" stop-color="#082D21"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFEF8"/>
+      <stop offset="0.72" stop-color="#FAF7ED"/>
+      <stop offset="1" stop-color="#E5DED0"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D6C4A1"/>
+      <stop offset="1" stop-color="#8D6F3D"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="165%">
+      <feDropShadow dx="0" dy="15" stdDeviation="13" flood-color="#00170D" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="10" y="10" width="492" height="492" rx="118" fill="url(#back)"/>
+  <g filter="url(#shadow)">
+    <rect x="116" y="84" width="280" height="360" rx="36" fill="url(#edge)"/>
+    <rect x="108" y="69" width="296" height="356" rx="36" fill="url(#tile)" stroke="#E3DAC9" stroke-width="6"/>
+    <rect x="125" y="87" width="262" height="322" rx="25" fill="none" stroke="#F5F0E5" stroke-width="5"/>
+  </g>
+  <g fill="#127342">
+    <circle cx="256" cy="128" r="11"/>
+    <circle cx="231" cy="145" r="10"/>
+    <circle cx="281" cy="145" r="10"/>
+    <circle cx="256" cy="162" r="10"/>
+    <circle cx="256" cy="363" r="11"/>
+    <circle cx="231" cy="346" r="10"/>
+    <circle cx="281" cy="346" r="10"/>
+    <circle cx="256" cy="329" r="10"/>
+  </g>
+  <text x="256" y="299" text-anchor="middle" font-size="176" font-weight="900" font-family="Noto Sans CJK JP, Hiragino Kaku Gothic ProN, Yu Gothic, Meiryo, sans-serif" fill="#C52026" stroke="#A61219" stroke-width="2" paint-order="stroke">森</text>
+  <rect x="10" y="10" width="492" height="492" rx="118" fill="none" stroke="#0A3B2B" stroke-opacity="0.28" stroke-width="10"/>
 </svg>
