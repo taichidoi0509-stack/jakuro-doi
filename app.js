@@ -6768,3 +6768,282 @@ updateAuthUI = async function(session) {
   if (!session) resetHomeDashboardStateV35();
   await updateAuthUIBeforeV35(session);
 };
+
+/* v36: match dashboard / operational match hub */
+let matchDashboardStateV36 = {
+  groupId: "",
+  loading: false,
+  loaded: false,
+  error: "",
+  sessions: [],
+  hanchanCounts: {}
+};
+let matchDashboardLoadTokenV36 = 0;
+
+function resetMatchDashboardStateV36(groupId = "") {
+  matchDashboardStateV36 = {
+    groupId,
+    loading: false,
+    loaded: false,
+    error: "",
+    sessions: [],
+    hanchanCounts: {}
+  };
+}
+
+function getMatchDashboardMetaV36(session) {
+  const hanchans = Number(matchDashboardStateV36.hanchanCounts[session.id] || 0);
+  const items = [getModeLabel(session.game_mode), session.rate_label || "レート未設定"];
+  if (hanchans > 0) items.push(`${hanchans}半荘`);
+  return items.join(" ／ ");
+}
+
+function getMatchDashboardStatusV36(status) {
+  if (status === "open") return "入力中";
+  if (status === "settled") return "精算済み";
+  return "記録";
+}
+
+function buildMatchDashboardV36() {
+  const sessions = matchDashboardStateV36.sessions || [];
+  const openSession = sessions.find((item) => item.status === "open") || null;
+  const recentSessions = sessions.slice(0, 4);
+  const settledCount = sessions.filter((item) => item.status === "settled").length;
+  const weekBoundary = new Date();
+  weekBoundary.setHours(0, 0, 0, 0);
+  weekBoundary.setDate(weekBoundary.getDate() - 6);
+  const recentWeekCount = sessions.filter((item) => {
+    const date = new Date(`${item.session_date}T00:00:00`);
+    return !Number.isNaN(date.valueOf()) && date >= weekBoundary;
+  }).length;
+
+  const primaryMarkup = openSession
+    ? `<section class="match-dashboard-primary is-open">
+        <div class="match-dashboard-primary-heading">
+          <div><p class="eyebrow">IN PROGRESS</p><h2>進行中の対局</h2></div>
+          <span class="match-dashboard-live">入力中</span>
+        </div>
+        <strong>${escapeHtml(formatDate(openSession.session_date))}</strong>
+        <p>${escapeHtml(getMatchDashboardMetaV36(openSession))}</p>
+        <button type="button" class="match-dashboard-primary-action" data-v36-open-session="${openSession.id}">入力を再開する <span>›</span></button>
+      </section>`
+    : `<section class="match-dashboard-primary">
+        <div class="match-dashboard-primary-heading">
+          <div><p class="eyebrow">NEW MATCH</p><h2>次の対局を記録</h2></div>
+          <span class="match-dashboard-ready">準備完了</span>
+        </div>
+        <p>形式・参加者・レートを選び、その日の麻雀会を開始します。</p>
+        <button type="button" class="match-dashboard-primary-action" data-v36-action="new-session">新しい対局を作成 <span>＋</span></button>
+      </section>`;
+
+  const recentMarkup = recentSessions.length
+    ? recentSessions.map((session) => `
+      <button type="button" class="match-dashboard-recent-row" data-v36-open-session="${session.id}">
+        <span class="match-dashboard-row-status ${session.status === "open" ? "open" : "settled"}">${getMatchDashboardStatusV36(session.status)}</span>
+        <span class="match-dashboard-row-main"><strong>${escapeHtml(formatDate(session.session_date))}</strong><small>${escapeHtml(getMatchDashboardMetaV36(session))}</small></span>
+        <span class="match-dashboard-row-arrow">›</span>
+      </button>
+    `).join("")
+    : `<div class="match-dashboard-empty"><strong>まだ対局記録がありません。</strong><span>最初の対局を作成すると、ここに最近の記録が表示されます。</span></div>`;
+
+  return `
+    <section class="match-dashboard">
+      <header class="match-dashboard-header">
+        <div><p class="eyebrow">MATCH</p><h2>対局</h2><p>今日の入力、過去記録、対局の開始をここから行います。</p></div>
+        <span class="match-dashboard-group">${escapeHtml(getActiveGroup()?.name || "")}</span>
+      </header>
+
+      ${primaryMarkup}
+
+      <section class="match-dashboard-stats" aria-label="対局の状況">
+        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>最近7日</span><strong>${recentWeekCount}<small>日</small></strong><em>記録を確認</em></button>
+        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>精算済み</span><strong>${settledCount}<small>日</small></strong><em>履歴から探す</em></button>
+        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>全対局</span><strong>${sessions.length}<small>日</small></strong><em>カレンダーで見る</em></button>
+      </section>
+
+      <section class="match-dashboard-command-panel">
+        <div class="match-dashboard-section-heading"><div><p class="eyebrow">START HERE</p><h3>目的から選ぶ</h3></div></div>
+        <div class="match-dashboard-command-grid">
+          <button type="button" class="match-dashboard-command primary" data-v36-action="new-session"><span>＋</span><strong>対局を作成</strong><small>新しい麻雀会を開始</small></button>
+          <button type="button" class="match-dashboard-command" data-v36-action="history"><span>歴</span><strong>対局履歴</strong><small>カレンダー・条件検索</small></button>
+          <button type="button" class="match-dashboard-command" data-v36-action="open-current"><span>入</span><strong>${openSession ? "入力を再開" : "直近記録を開く"}</strong><small>${openSession ? "進行中の対局へ戻る" : "最近の対局を確認"}</small></button>
+        </div>
+      </section>
+
+      <section class="match-dashboard-recent-panel">
+        <div class="match-dashboard-section-heading"><div><p class="eyebrow">RECENT</p><h3>最近の対局</h3></div><button type="button" class="match-dashboard-text-action" data-v36-action="history">すべて見る</button></div>
+        <div class="match-dashboard-recent-list">${recentMarkup}</div>
+      </section>
+    </section>
+  `;
+}
+
+function bindMatchDashboardEventsV36(workspace) {
+  workspace.querySelectorAll("[data-v36-open-session]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const sessionId = button.dataset.v36OpenSession;
+      if (!sessionId) return;
+      activeMatchSessionId = sessionId;
+      localStorage.setItem("jakuroku-active-match-session-id", sessionId);
+      showCreateSession = false;
+      await openNavigationFeatureV34("game-session");
+    });
+  });
+
+  workspace.querySelectorAll("[data-v36-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.v36Action;
+      if (action === "new-session") {
+        showCreateSession = true;
+        sessionDraft = createDefaultSessionDraft();
+        await openNavigationFeatureV34("game-session");
+        return;
+      }
+      if (action === "history") {
+        await openNavigationFeatureV34("history");
+        return;
+      }
+      if (action === "open-current") {
+        const target = matchDashboardStateV36.sessions.find((item) => item.status === "open") || matchDashboardStateV36.sessions[0];
+        if (!target) {
+          showCreateSession = true;
+          sessionDraft = createDefaultSessionDraft();
+        } else {
+          activeMatchSessionId = target.id;
+          localStorage.setItem("jakuroku-active-match-session-id", target.id);
+          showCreateSession = false;
+        }
+        await openNavigationFeatureV34("game-session");
+      }
+    });
+  });
+}
+
+function renderMatchDashboardV36() {
+  const page = getPageWorkspace();
+  if (!currentSession) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MATCH</p><h2>ログインが必要です</h2><button type="button" class="primary-button" data-v36-home>ホームへ戻る</button></section>`;
+    page.querySelector("[data-v36-home]")?.addEventListener("click", () => void switchTab("home"));
+    return;
+  }
+  if (!getActiveGroup()) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MATCH</p><h2>先にグループを作成してください</h2><button type="button" class="primary-button" data-v36-home>ホームへ戻る</button></section>`;
+    page.querySelector("[data-v36-home]")?.addEventListener("click", () => void switchTab("home"));
+    return;
+  }
+
+  navigationHubV34 = "game";
+  settingsFocusV34 = "";
+  currentTab = "hub-game";
+  setPrimaryNavActiveV34("game");
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  page.hidden = false;
+
+  if (matchDashboardStateV36.groupId !== activeGroupId) resetMatchDashboardStateV36(activeGroupId);
+
+  if (matchDashboardStateV36.error) {
+    page.innerHTML = `<section class="match-dashboard"><section class="match-dashboard-error"><p class="eyebrow">MATCH</p><h2>対局を読み込めませんでした</h2><p>${escapeHtml(matchDashboardStateV36.error)}</p><button type="button" class="primary-button" data-v36-retry>再読み込み</button></section></section>`;
+    page.querySelector("[data-v36-retry]")?.addEventListener("click", () => void loadMatchDashboardV36(true));
+    return;
+  }
+
+  if (matchDashboardStateV36.loading || !matchDashboardStateV36.loaded) {
+    page.innerHTML = `<section class="match-dashboard"><section class="match-dashboard-loading">対局の状況を読み込み中...</section></section>`;
+    void loadMatchDashboardV36();
+    return;
+  }
+
+  page.innerHTML = buildMatchDashboardV36();
+  bindMatchDashboardEventsV36(page);
+  window.scrollTo(0, 0);
+}
+
+async function loadMatchDashboardV36(force = false) {
+  if (!currentSession || !activeGroupId || !supabaseClient) return;
+  const groupId = activeGroupId;
+  if (matchDashboardStateV36.groupId !== groupId) resetMatchDashboardStateV36(groupId);
+  if (matchDashboardStateV36.loading && !force) return;
+
+  const token = ++matchDashboardLoadTokenV36;
+  matchDashboardStateV36.loading = true;
+  matchDashboardStateV36.error = "";
+  if (currentTab === "hub-game") renderMatchDashboardV36();
+
+  try {
+    const { data: sessions, error } = await supabaseClient
+      .from("match_sessions")
+      .select("id, session_date, game_mode, rate_label, status, created_at")
+      .eq("group_id", groupId)
+      .is("deleted_at", null)
+      .order("session_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(40);
+    if (error) throw error;
+    if (token !== matchDashboardLoadTokenV36 || activeGroupId !== groupId) return;
+
+    const sessionRows = sessions || [];
+    const sessionIds = sessionRows.map((item) => item.id);
+    let hanchanCounts = {};
+    if (sessionIds.length) {
+      const { data: hanchans, error: hanchansError } = await supabaseClient
+        .from("match_hanchans")
+        .select("session_id")
+        .in("session_id", sessionIds);
+      if (!hanchansError) {
+        hanchanCounts = (hanchans || []).reduce((acc, item) => {
+          acc[item.session_id] = (acc[item.session_id] || 0) + 1;
+          return acc;
+        }, {});
+      }
+    }
+    if (token !== matchDashboardLoadTokenV36 || activeGroupId !== groupId) return;
+    matchDashboardStateV36 = {
+      groupId,
+      loading: false,
+      loaded: true,
+      error: "",
+      sessions: sessionRows,
+      hanchanCounts
+    };
+  } catch (error) {
+    if (token !== matchDashboardLoadTokenV36 || activeGroupId !== groupId) return;
+    matchDashboardStateV36.loading = false;
+    matchDashboardStateV36.loaded = false;
+    matchDashboardStateV36.error = error?.message || "通信状態を確認してください。";
+  }
+
+  if (currentTab === "hub-game" && activeGroupId === groupId) renderMatchDashboardV36();
+}
+
+const renderNavigationHubBeforeV36 = renderNavigationHubV34;
+renderNavigationHubV34 = function(area) {
+  if (area === "game") {
+    renderMatchDashboardV36();
+    return;
+  }
+  return renderNavigationHubBeforeV36(area);
+};
+
+const refreshCurrentViewFromRealtimeBeforeV36 = refreshCurrentViewFromRealtime;
+refreshCurrentViewFromRealtime = async function(force = false) {
+  if (currentTab === "hub-game") {
+    if (!force && isRealtimeInputInProgress()) return;
+    await loadMatchDashboardV36(true);
+    return;
+  }
+  return refreshCurrentViewFromRealtimeBeforeV36(force);
+};
+
+const switchActiveGroupBeforeV36 = switchActiveGroup;
+switchActiveGroup = async function(groupId) {
+  resetMatchDashboardStateV36();
+  return switchActiveGroupBeforeV36(groupId);
+};
+
+const updateAuthUIBeforeV36 = updateAuthUI;
+updateAuthUI = async function(session) {
+  if (!session) resetMatchDashboardStateV36();
+  await updateAuthUIBeforeV36(session);
+};
