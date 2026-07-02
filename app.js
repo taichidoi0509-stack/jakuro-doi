@@ -6235,3 +6235,254 @@ updateAuthUI = async function(session) {
 };
 
 ensureFeedbackNavigation();
+
+/* v34: mobile information architecture / navigation redesign */
+const switchTabV33 = switchTab;
+let navigationHubV34 = "";
+let settingsFocusV34 = "";
+
+const PRIMARY_NAV_V34 = [
+  { id: "home", symbol: "⌂", label: "ホーム" },
+  { id: "game", symbol: "対", label: "対局" },
+  { id: "analytics", symbol: "析", label: "分析" },
+  { id: "debt", symbol: "借", label: "精算" },
+  { id: "settings", symbol: "設", label: "設定" }
+];
+
+function primaryAreaForV34(tab = currentTab) {
+  if (tab === "home") return "home";
+  if (["game", "history"].includes(tab)) return "game";
+  if (["ranking", "analytics"].includes(tab)) return "analytics";
+  if (tab === "debt") return "debt";
+  if (["settings", "trash", "feedback"].includes(tab)) return "settings";
+  if (String(tab || "").startsWith("hub-")) return String(tab).replace("hub-", "");
+  return "";
+}
+
+function setPrimaryNavActiveV34(area) {
+  navItems.forEach((item) => item.classList.toggle("active", item.dataset.tab === area));
+}
+
+function configurePrimaryNavigationV34() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav) return;
+  nav.innerHTML = PRIMARY_NAV_V34.map((item) => `
+    <button type="button" class="nav-item nav-item-v34" data-tab="${item.id}" aria-label="${item.label}">
+      <span>${item.symbol}</span><small>${item.label}</small>
+    </button>
+  `).join("");
+  navItems = document.querySelectorAll(".nav-item");
+  navItems.forEach((item) => item.addEventListener("click", () => {
+    const area = item.dataset.tab;
+    if (area === "home") {
+      settingsFocusV34 = "";
+      navigationHubV34 = "";
+      void switchTabV33("home");
+      return;
+    }
+    renderNavigationHubV34(area);
+  }));
+  setPrimaryNavActiveV34(primaryAreaForV34());
+}
+
+function hubCardV34(feature, symbol, title, text, meta = "") {
+  return `
+    <button type="button" class="hub-menu-card" data-v34-feature="${feature}">
+      <span class="hub-menu-icon">${symbol}</span>
+      <span class="hub-menu-main"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(text)}</small>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}</span>
+      <span class="hub-menu-arrow" aria-hidden="true">›</span>
+    </button>
+  `;
+}
+
+function renderNavigationHubV34(area) {
+  navigationHubV34 = area;
+  settingsFocusV34 = "";
+  currentTab = `hub-${area}`;
+  setPrimaryNavActiveV34(area);
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  const page = getPageWorkspace();
+  page.hidden = false;
+
+  const groupName = getActiveGroup()?.name || "グループを選択";
+  const itemMap = {
+    game: {
+      eyebrow: "MATCH",
+      title: "対局メニュー",
+      text: "記録する・過去の対局を探す、の入口を分けています。",
+      cards: [
+        hubCardV34("game-session", "対", "日次記録", "新規対局、進行中の半荘入力、精算済み対局の確認", activeMatchSession ? `進行中：${formatDate(activeMatchSession.session_date)}` : ""),
+        hubCardV34("history", "歴", "対局履歴", "カレンダー、期間・形式・レート・参加者で過去記録を探す")
+      ]
+    },
+    analytics: {
+      eyebrow: "ANALYTICS",
+      title: "分析メニュー",
+      text: "結果を見る目的ごとに、ランキングと会場分析を分けています。",
+      cards: [
+        hubCardV34("ranking", "順", "ランキング・成績詳細", "総合pt、素点pt、チップ、形式・レート別の成績を確認"),
+        hubCardV34("venue-analysis", "場", "会場別集計", "会場ごとの対局数、場代、プレイヤー別成績を確認")
+      ]
+    },
+    debt: {
+      eyebrow: "SETTLEMENT",
+      title: "精算メニュー",
+      text: "借ptの残高確認、支払い記録、手動の横流しを管理します。",
+      cards: [
+        hubCardV34("debt-manage", "借", "借ptを管理", "未精算・完了・取消済みを確認し、支払い・横流しを記録"),
+        hubCardV34("history", "歴", "精算済みの対局を探す", "対局履歴から日次精算、場代、送金ルートを確認")
+      ]
+    },
+    settings: {
+      eyebrow: "SETTINGS",
+      title: "設定・管理メニュー",
+      text: "設定項目を目的別に分け、普段使わない管理機能はここへまとめました。",
+      cards: [
+        hubCardV34("settings-group", "人", "グループ・メンバー", "表示名、招待コード、グループ名、参加メンバーと権限"),
+        hubCardV34("settings-setup", "場", "会場・対局テンプレート", "会場の管理と、よく使う対局設定のテンプレート"),
+        hubCardV34("settings-data", "保", "バックアップ・編集履歴", "CSV・JSON出力、JSON復元、操作の編集履歴"),
+        hubCardV34("trash", "箱", "ゴミ箱", "削除した日次記録と取消済み借ptの復元・完全削除"),
+        hubCardV34("feedback", "声", "意見・不具合報告", "機能要望、不具合、使いにくい点をグループ内で共有")
+      ]
+    }
+  };
+
+  const data = itemMap[area];
+  if (!data) return;
+  page.innerHTML = `
+    <section class="navigation-hub-card">
+      <div class="navigation-hub-heading">
+        <div><p class="eyebrow">${data.eyebrow}</p><h2>${data.title}</h2></div>
+        <span class="navigation-hub-group">${escapeHtml(groupName)}</span>
+      </div>
+      <p class="navigation-hub-description">${data.text}</p>
+      <div class="hub-menu-list">${data.cards.join("")}</div>
+    </section>
+  `;
+  page.querySelectorAll("[data-v34-feature]").forEach((button) => button.addEventListener("click", () => {
+    void openNavigationFeatureV34(button.dataset.v34Feature);
+  }));
+  window.scrollTo(0, 0);
+}
+
+function mountViewContextV34(area, label, note = "") {
+  const page = getPageWorkspace();
+  page.querySelector(".navigation-context-bar")?.remove();
+  const context = document.createElement("div");
+  context.className = "navigation-context-bar";
+  context.innerHTML = `
+    <button type="button" class="navigation-context-back" data-v34-back-area="${area}">‹ ${escapeHtml(area === "settings" ? "設定メニュー" : area === "analytics" ? "分析メニュー" : area === "debt" ? "精算メニュー" : "対局メニュー")}</button>
+    <div><span>${escapeHtml(area === "settings" ? "SETTINGS" : area === "analytics" ? "ANALYTICS" : area === "debt" ? "SETTLEMENT" : "MATCH")}</span><strong>${escapeHtml(label)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>
+  `;
+  page.prepend(context);
+  context.querySelector("[data-v34-back-area]")?.addEventListener("click", () => renderNavigationHubV34(area));
+}
+
+function settingsSectionKeyV34(section) {
+  if (section.classList.contains("match-template-settings-section") || section.classList.contains("venue-settings-section")) return "setup";
+  if (section.classList.contains("data-export-section") || section.classList.contains("backup-restore-section") || section.classList.contains("activity-history-section")) return "data";
+  const eyebrow = String(section.querySelector(".eyebrow")?.textContent || "").trim();
+  if (["MY PROFILE", "INVITE", "GROUP", "MEMBERS", "GROUP SWITCH"].includes(eyebrow)) return "group";
+  return "other";
+}
+
+function applySettingsFocusV34() {
+  if (!settingsFocusV34) return;
+  const page = getPageWorkspace();
+  const card = page.querySelector(".settings-card");
+  if (!card) return;
+  const config = {
+    group: { title: "グループ・メンバー", text: "表示名、招待、グループ情報、参加メンバーを管理します。" },
+    setup: { title: "会場・対局テンプレート", text: "普段使う会場と対局条件を、グループで共通化します。" },
+    data: { title: "バックアップ・編集履歴", text: "データの保全、復元、操作履歴の確認を行います。" }
+  }[settingsFocusV34];
+  if (!config) return;
+  card.querySelectorAll(":scope > .settings-section").forEach((section) => {
+    section.hidden = settingsSectionKeyV34(section) !== settingsFocusV34;
+  });
+  const heading = card.querySelector(":scope > .workspace-heading");
+  if (heading) {
+    const eyebrow = heading.querySelector(".eyebrow");
+    const title = heading.querySelector("h2");
+    const description = card.querySelector(":scope > .workspace-description");
+    if (eyebrow) eyebrow.textContent = "SETTINGS";
+    if (title) title.textContent = config.title;
+    if (description) description.textContent = config.text;
+  }
+  mountViewContextV34("settings", config.title);
+  setPrimaryNavActiveV34("settings");
+}
+
+const renderSettingsPageBeforeV34 = renderSettingsPage;
+renderSettingsPage = function() {
+  renderSettingsPageBeforeV34();
+  applySettingsFocusV34();
+};
+
+async function openSettingsFeatureV34(focus) {
+  settingsFocusV34 = focus;
+  navigationHubV34 = "settings";
+  await switchTabV33("settings");
+  setPrimaryNavActiveV34("settings");
+  window.scrollTo(0, 0);
+}
+
+async function openNavigationFeatureV34(feature) {
+  settingsFocusV34 = "";
+  if (feature === "game-session") {
+    await switchTabV33("game");
+    setPrimaryNavActiveV34("game");
+    mountViewContextV34("game", "日次記録", "対局の作成・入力・精算");
+  } else if (feature === "history") {
+    await switchTabV33("history");
+    setPrimaryNavActiveV34("game");
+    mountViewContextV34("game", "対局履歴", "カレンダーと条件検索");
+  } else if (feature === "ranking") {
+    await switchTabV33("ranking");
+    setPrimaryNavActiveV34("analytics");
+    mountViewContextV34("analytics", "ランキング・成績詳細", "場代を除いたゲーム成績");
+  } else if (feature === "venue-analysis") {
+    await switchTabV33("ranking");
+    setPrimaryNavActiveV34("analytics");
+    mountViewContextV34("analytics", "会場別集計", "会場ごとの対局・場代・成績");
+    requestAnimationFrame(() => document.querySelector(".venue-analysis-section")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  } else if (feature === "debt-manage") {
+    await switchTabV33("debt");
+    setPrimaryNavActiveV34("debt");
+    mountViewContextV34("debt", "借ptを管理", "未精算・支払い・横流し");
+  } else if (feature === "settings-group") {
+    await openSettingsFeatureV34("group");
+  } else if (feature === "settings-setup") {
+    await openSettingsFeatureV34("setup");
+  } else if (feature === "settings-data") {
+    await openSettingsFeatureV34("data");
+  } else if (feature === "trash") {
+    await switchTabV33("trash");
+    setPrimaryNavActiveV34("settings");
+    mountViewContextV34("settings", "ゴミ箱", "削除済みの記録・借ptを復元");
+  } else if (feature === "feedback") {
+    await switchTabV33("feedback");
+    setPrimaryNavActiveV34("settings");
+    mountViewContextV34("settings", "意見・不具合報告", "要望と不具合をグループ内で共有");
+  }
+  window.scrollTo(0, 0);
+}
+
+const refreshCurrentViewFromRealtimeBeforeV34 = refreshCurrentViewFromRealtime;
+refreshCurrentViewFromRealtime = async function(force = false) {
+  if (String(currentTab || "").startsWith("hub-")) {
+    if (!force && isRealtimeInputInProgress()) return;
+    renderNavigationHubV34(String(currentTab).replace("hub-", ""));
+    return;
+  }
+  const result = await refreshCurrentViewFromRealtimeBeforeV34(force);
+  if (["history", "ranking", "debt", "trash", "feedback"].includes(currentTab)) {
+    setPrimaryNavActiveV34(primaryAreaForV34(currentTab));
+  }
+  if (currentTab === "settings" && settingsFocusV34) applySettingsFocusV34();
+  return result;
+};
+
+configurePrimaryNavigationV34();
