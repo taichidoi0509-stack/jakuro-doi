@@ -1,12 +1,26 @@
 {
-  "name": "雀録 - 麻雀成績管理",
-  "short_name": "雀録",
-  "description": "3人打ち・4人打ち対応の麻雀スコア・成績管理アプリ",
+  "name": "森研麻雀倶楽部",
+  "short_name": "森研麻雀",
+  "description": "森研向けの麻雀スコア・成績管理アプリ",
+  "lang": "ja",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f4ef",
-  "theme_color": "#0d3b2e",
+  "background_color": "#0a3f2d",
+  "theme_color": "#0a3f2d",
   "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "./icons/icon.svg",
       "sizes": "any",

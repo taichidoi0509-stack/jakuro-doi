@@ -1,4 +1,4 @@
-const CACHE_NAME = "jakuro-v37";
+const CACHE_NAME = "moriken-mahjong-v38";
 
 const APP_SHELL = [
   "./",
@@ -6,7 +6,10 @@ const APP_SHELL = [
   "./style.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./icons/icon.svg"
+  "./icons/icon.svg",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -37,7 +40,6 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const requestUrl = new URL(event.request.url);
-
   if (requestUrl.origin !== self.location.origin) return;
 
   event.respondWith(
@@ -48,18 +50,12 @@ self.addEventListener("fetch", (event) => {
             cache.put(event.request, response.clone());
           });
         }
-
         return response;
       })
       .catch(async () => {
         const cachedResponse = await caches.match(event.request);
-
         if (cachedResponse) return cachedResponse;
-
-        if (event.request.mode === "navigate") {
-          return caches.match("./index.html");
-        }
-
+        if (event.request.mode === "navigate") return caches.match("./index.html");
         return Response.error();
       })
   );

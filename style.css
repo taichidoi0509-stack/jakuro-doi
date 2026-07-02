@@ -28,13 +28,14 @@ button { cursor: pointer; }
 .app-shell { width: min(100%, 760px); min-height: 100vh; margin: 0 auto; padding-bottom: 92px; }
 .app-header { display: flex; align-items: center; justify-content: space-between; padding: 22px 20px 16px; }
 .brand { display: flex; align-items: center; gap: 10px; }
-.brand-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--green); color: #d94343; font-size: 25px; font-weight: 800; box-shadow: 0 8px 16px rgba(13, 59, 46, 0.18); }
+.brand-icon { display: grid; width: 44px; height: 44px; place-items: center; overflow: hidden; border-radius: 13px; background: transparent; box-shadow: 0 8px 16px rgba(13, 59, 46, 0.18); }
+.brand-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .brand-label, .eyebrow { margin: 0; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
-.brand h1 { margin: 1px 0 0; font-size: 22px; letter-spacing: .04em; }
+.brand h1 { margin: 1px 0 0; font-size: clamp(18px, 4.8vw, 22px); letter-spacing: .02em; }
 .main-content { padding: 0 20px 28px; }
 
 .hero-card { position: relative; overflow: hidden; padding: 28px 24px; border-radius: 24px; background: radial-gradient(circle at 87% 14%, rgba(201,154,56,.24), transparent 28%), linear-gradient(145deg,#164b3b,#0a2d23); color: #fff; box-shadow: var(--shadow); }
-.hero-card::after { position: absolute; right: -24px; bottom: -50px; color: rgba(255,255,255,.08); content: "中"; font-size: 188px; font-weight: 800; line-height: 1; }
+.hero-card::after { position: absolute; right: -24px; bottom: -50px; color: rgba(255,255,255,.08); content: "森"; font-size: 188px; font-weight: 800; line-height: 1; }
 .hero-card .eyebrow { position: relative; color: rgba(255,255,255,.65); }
 .hero-card h2 { position: relative; margin: 12px 0; font-size: clamp(27px, 7vw, 42px); line-height: 1.28; }
 .hero-card p:not(.eyebrow) { position: relative; max-width: 390px; margin: 0; color: rgba(255,255,255,.75); font-size: 14px; line-height: 1.8; }

@@ -427,7 +427,7 @@ async function updateAuthUI(session) {
 function closeAuthModal() { document.querySelector(".auth-overlay")?.remove(); }
 function openAuthModal(mode = "login") {
   closeAuthModal(); const signup = mode === "signup";
-  document.body.insertAdjacentHTML("beforeend", `<div class="auth-overlay"><section class="auth-dialog" role="dialog" aria-modal="true"><button class="auth-close-button" type="button">×</button><p class="eyebrow">JAKUROKU ACCOUNT</p><h2>${signup ? "アカウントを作成" : "ログイン"}</h2><form id="authForm" class="auth-form">${signup ? `<label>表示名<input name="displayName" type="text" maxlength="40" required></label>` : ""}<label>メールアドレス<input name="email" type="email" autocomplete="email" required></label><label>パスワード<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required></label><p id="authMessage" class="auth-message"></p><button id="authSubmitButton" class="auth-submit-button" type="submit">${signup ? "登録する" : "ログインする"}</button></form><button id="authModeButton" class="auth-mode-button" type="button">${signup ? "すでに登録済みの場合はログイン" : "初めての場合は新規登録"}</button></section></div>`);
+  document.body.insertAdjacentHTML("beforeend", `<div class="auth-overlay"><section class="auth-dialog" role="dialog" aria-modal="true"><button class="auth-close-button" type="button">×</button><p class="eyebrow">森研麻雀倶楽部 ACCOUNT</p><h2>${signup ? "アカウントを作成" : "ログイン"}</h2><form id="authForm" class="auth-form">${signup ? `<label>表示名<input name="displayName" type="text" maxlength="40" required></label>` : ""}<label>メールアドレス<input name="email" type="email" autocomplete="email" required></label><label>パスワード<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required></label><p id="authMessage" class="auth-message"></p><button id="authSubmitButton" class="auth-submit-button" type="submit">${signup ? "登録する" : "ログインする"}</button></form><button id="authModeButton" class="auth-mode-button" type="button">${signup ? "すでに登録済みの場合はログイン" : "初めての場合は新規登録"}</button></section></div>`);
   const overlay = document.querySelector(".auth-overlay"), form = document.getElementById("authForm"), message = document.getElementById("authMessage"), submit = document.getElementById("authSubmitButton");
   document.querySelector(".auth-close-button").addEventListener("click", closeAuthModal); overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAuthModal(); }); document.getElementById("authModeButton").addEventListener("click", () => openAuthModal(signup ? "login" : "signup"));
   form.addEventListener("submit", async (e) => {
@@ -891,7 +891,7 @@ function buildExportFiles(group, payload) {
     { name: "04_飛ばし点.csv", content: createCsvText(Object.keys(transferRows[0] || { session_id: "" }), transferRows) },
     { name: "05_役満記録.csv", content: createCsvText(Object.keys(yakumanRows[0] || { session_id: "" }), yakumanRows) },
     { name: "06_メンバー.csv", content: createCsvText(Object.keys(memberRows[0] || { member_id: "" }), memberRows) },
-    { name: "README.txt", content: `雀録 データ出力\n\nグループ: ${group.name}\n対象期間: ${getExportPeriodLabel()}\n出力日時: ${new Date().toLocaleString("ja-JP")}\n\n「03_チップと精算.csv」の game_pt_excluding_venue は、場代を除くゲーム収支です。\nfinal_settlement_pt_including_venue は、場代均等負担と先払いを反映した最終精算額です。\n` }
+    { name: "README.txt", content: `森研麻雀倶楽部 データ出力\n\nグループ: ${group.name}\n対象期間: ${getExportPeriodLabel()}\n出力日時: ${new Date().toLocaleString("ja-JP")}\n\n「03_チップと精算.csv」の game_pt_excluding_venue は、場代を除くゲーム収支です。\nfinal_settlement_pt_including_venue は、場代均等負担と先払いを反映した最終精算額です。\n` }
   ];
 
   return { files: contents, settlements };
@@ -4330,8 +4330,8 @@ function createResultShareCanvas({ session, totals, routes, venueReady }) {
   ctx.globalAlpha = 1;
 
   ctx.fillStyle = "#f5f1e5";
-  ctx.font = "800 30px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
-  ctx.fillText("JAKUROKU", 72, 88);
+  ctx.font = "800 28px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
+  ctx.fillText("森研麻雀倶楽部", 72, 88);
   ctx.font = "700 22px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
   ctx.fillStyle = "#cee4d6";
   ctx.fillText(shareCardEllipsis(ctx, getActiveGroup()?.name || "麻雀会", 430), 72, 124);
@@ -4416,7 +4416,7 @@ function createResultShareCanvas({ session, totals, routes, venueReady }) {
   ctx.fillStyle = "#cfe3d7";
   ctx.font = "700 18px -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("記録・集計：雀録", width / 2, height - 52);
+  ctx.fillText("記録・集計：森研麻雀倶楽部", width / 2, height - 52);
   ctx.textAlign = "left";
   return canvas;
 }
@@ -4424,7 +4424,7 @@ function createResultShareCanvas({ session, totals, routes, venueReady }) {
 function downloadResultShareCard(canvas) {
   const dateText = String(activeMatchSession?.session_date || todayInJapan()).replaceAll("-", "");
   const link = document.createElement("a");
-  link.download = `jakuroku-result-${dateText}.png`;
+  link.download = `moriken-mahjong-result-${dateText}.png`;
   link.href = canvas.toDataURL("image/png");
   document.body.append(link);
   link.click();
@@ -4434,7 +4434,7 @@ function downloadResultShareCard(canvas) {
 function openResultShareCard(data) {
   closeResultShareCard();
   const canvas = createResultShareCanvas(data);
-  const canShareFile = Boolean(navigator.share && window.File && (typeof navigator.canShare !== "function" || navigator.canShare({ files: [new File(["x"], "jakuroku.png", { type: "image/png" })] })));
+  const canShareFile = Boolean(navigator.share && window.File && (typeof navigator.canShare !== "function" || navigator.canShare({ files: [new File(["x"], "moriken-mahjong.png", { type: "image/png" })] })));
   document.body.insertAdjacentHTML("beforeend", `
     <div class="result-share-modal-overlay">
       <section class="result-share-modal" role="dialog" aria-modal="true" aria-labelledby="resultShareCardTitle">
@@ -4463,8 +4463,8 @@ function openResultShareCard(data) {
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("画像を作成できませんでした。");
       const dateText = String(data.session.session_date || todayInJapan()).replaceAll("-", "");
-      const file = new File([blob], `jakuroku-result-${dateText}.png`, { type: "image/png" });
-      await navigator.share({ title: "雀録 結果カード", text: `${formatDate(data.session.session_date)}の麻雀会`, files: [file] });
+      const file = new File([blob], `moriken-mahjong-result-${dateText}.png`, { type: "image/png" });
+      await navigator.share({ title: "森研麻雀倶楽部 結果カード", text: `${formatDate(data.session.session_date)}の麻雀会`, files: [file] });
     } catch (error) {
       if (error?.name !== "AbortError") alert(error?.message || "共有できませんでした。PNGを保存して共有してください。");
     }
@@ -5147,7 +5147,7 @@ async function readBackupRestoreFile(file) {
     const text = await file.text();
     const backup = JSON.parse(text);
     if (!backup || typeof backup !== "object" || !String(backup.format || "").startsWith("jakuroku-backup-v")) {
-      throw new Error("雀録のJSONバックアップファイルを選択してください。");
+      throw new Error("森研麻雀倶楽部のJSONバックアップファイルを選択してください。");
     }
     const sourceMembers = getBackupRestoreSourceMembers(backup);
     if (!sourceMembers.length) throw new Error("バックアップ内に復元対象の参加メンバーが見つかりません。");
@@ -5525,7 +5525,7 @@ readBackupRestoreFile = async function(file) {
     const text = await file.text();
     const backup = JSON.parse(text);
     if (!backup || typeof backup !== "object" || !String(backup.format || "").startsWith("jakuroku-backup-v")) {
-      throw new Error("雀録のJSONバックアップファイルを選択してください。");
+      throw new Error("森研麻雀倶楽部のJSONバックアップファイルを選択してください。");
     }
     const sourceMembers = isBackupV2(backup)
       ? getBackupRestoreSourceMembersV2(backup)
