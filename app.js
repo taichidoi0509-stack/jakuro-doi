@@ -7410,3 +7410,129 @@ renderMatchPage = function() {
   renderMatchPageBeforeV41();
   addEmptyStateActionsV41();
 };
+
+/* v42: settings hierarchy and mobile reading refinements */
+function buildSettingsDashboardV42() {
+  const page = getPageWorkspace();
+  if (!currentSession || !getActiveGroup()) {
+    return renderNavigationHubBeforeV41("settings");
+  }
+
+  navigationHubV34 = "settings";
+  settingsFocusV34 = "";
+  currentTab = "hub-settings";
+  setPrimaryNavActiveV34("settings");
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  page.hidden = false;
+
+  const admin = isActiveGroupAdmin();
+  const unresolvedFeedback = Array.isArray(feedbackItems)
+    ? feedbackItems.filter((item) => ["open", "in_progress"].includes(item.status)).length
+    : 0;
+  const openDebtCount = Array.isArray(debtRecords)
+    ? debtRecords.filter((item) => item.status === "open" && num(item.remaining_amount_pt) > 0.004).length
+    : 0;
+
+  const groupCards = [
+    hubCardV34("settings-group", "人", "グループ・メンバー", "表示名、招待コード、グループ名、参加メンバーと権限"),
+    hubCardV34("settings-setup", "場", "会場・対局テンプレート", "会場の管理と、よく使う対局条件の登録")
+  ].join("");
+  const dataCards = [
+    hubCardV34("settings-data", "保", "バックアップ・編集履歴", "CSV・JSON出力、JSON復元、操作履歴の確認")
+  ].join("");
+  const operationCards = [
+    hubCardV34("feedback", "声", "意見・不具合報告", "機能要望、不具合、使いにくい点をグループ内で共有", unresolvedFeedback ? `未対応 ${unresolvedFeedback}件` : "未対応なし"),
+    hubCardV34("trash", "箱", "ゴミ箱", "削除した日次記録と取消済み借ptの復元・完全削除")
+  ].join("");
+
+  page.innerHTML = `
+    <section class="v42-settings-dashboard">
+      <header class="v42-settings-heading">
+        <div><p class="eyebrow">SETTINGS</p><h2>設定・管理</h2><p>普段使う設定、データ保全、運用ツールを目的別に分けています。</p></div>
+        <span class="v42-role-badge">${admin ? "管理者" : "メンバー"}</span>
+      </header>
+      <section class="v42-settings-summary">
+        <div><span>グループ</span><strong>${escapeHtml(getActiveGroup().name)}</strong></div>
+        <div><span>未精算借pt</span><strong>${openDebtCount}件</strong></div>
+        <button type="button" data-v42-go-feedback><span>未対応の意見</span><strong>${unresolvedFeedback}件</strong><b>›</b></button>
+      </section>
+      <section class="v42-settings-category">
+        <div class="v42-category-heading"><p class="eyebrow">DAILY SETTINGS</p><h3>普段使う</h3><small>参加・会場・対局条件の管理</small></div>
+        <div class="hub-menu-list">${groupCards}</div>
+      </section>
+      <section class="v42-settings-category">
+        <div class="v42-category-heading"><p class="eyebrow">DATA MANAGEMENT</p><h3>データ管理</h3><small>バックアップ、復元、履歴の確認</small></div>
+        <div class="hub-menu-list">${dataCards}</div>
+      </section>
+      <section class="v42-settings-category v42-management-category">
+        <div class="v42-category-heading"><p class="eyebrow">OPERATIONS</p><h3>運用・その他</h3><small>実運用中の要望確認と削除済みデータの管理</small></div>
+        <div class="hub-menu-list">${operationCards}</div>
+      </section>
+    </section>
+  `;
+
+  page.querySelectorAll("[data-v34-feature]").forEach((button) => button.addEventListener("click", () => {
+    void openNavigationFeatureV34(button.dataset.v34Feature);
+  }));
+  page.querySelector("[data-v42-go-feedback]")?.addEventListener("click", () => void openNavigationFeatureV34("feedback"));
+  window.scrollTo(0, 0);
+}
+
+const renderNavigationHubBeforeV42 = renderNavigationHubV34;
+renderNavigationHubV34 = function(area) {
+  if (area === "settings") return buildSettingsDashboardV42();
+  return renderNavigationHubBeforeV42(area);
+};
+
+function mountSettingsSectionSwitcherV42() {
+  if (currentTab !== "settings" || !settingsFocusV34) return;
+  const page = getPageWorkspace();
+  const card = page.querySelector(".settings-card");
+  if (!card || card.querySelector(".v42-settings-switcher")) return;
+  const labels = {
+    group: "グループ",
+    setup: "会場・テンプレート",
+    data: "データ管理"
+  };
+  const switcher = document.createElement("nav");
+  switcher.className = "v42-settings-switcher";
+  switcher.setAttribute("aria-label", "設定カテゴリ");
+  switcher.innerHTML = Object.entries(labels).map(([key, label]) => `
+    <button type="button" class="${settingsFocusV34 === key ? "active" : ""}" data-v42-settings-focus="${key}">${label}</button>
+  `).join("");
+  card.insertAdjacentElement("afterbegin", switcher);
+  switcher.querySelectorAll("[data-v42-settings-focus]").forEach((button) => button.addEventListener("click", () => {
+    void openSettingsFeatureV34(button.dataset.v42SettingsFocus);
+  }));
+}
+
+const renderSettingsPageBeforeV42 = renderSettingsPage;
+renderSettingsPage = function() {
+  renderSettingsPageBeforeV42();
+  mountSettingsSectionSwitcherV42();
+};
+
+function decorateContentCardsV42() {
+  const page = getPageWorkspace();
+  page?.querySelectorAll(".history-session-card, .ranking-entry, .debt-record, .venue-analysis-card").forEach((card) => {
+    card.classList.add("v42-readable-card");
+  });
+}
+
+const renderHistoryPageBeforeV42 = renderHistoryPage;
+renderHistoryPage = function() {
+  renderHistoryPageBeforeV42();
+  decorateContentCardsV42();
+};
+const renderRankingPageBeforeV42 = renderRankingPage;
+renderRankingPage = function() {
+  renderRankingPageBeforeV42();
+  decorateContentCardsV42();
+};
+const renderDebtPageBeforeV42 = renderDebtPage;
+renderDebtPage = function() {
+  renderDebtPageBeforeV42();
+  decorateContentCardsV42();
+};
