@@ -6486,3 +6486,285 @@ refreshCurrentViewFromRealtime = async function(force = false) {
 };
 
 configurePrimaryNavigationV34();
+
+/* v35: home dashboard / operational overview */
+let homeDashboardStateV35 = {
+  groupId: "",
+  loading: false,
+  loaded: false,
+  error: "",
+  sessions: [],
+  openDebts: [],
+  feedback: [],
+  hanchanCounts: {}
+};
+let homeDashboardLoadTokenV35 = 0;
+
+function resetHomeDashboardStateV35(groupId = "") {
+  homeDashboardStateV35 = {
+    groupId,
+    loading: false,
+    loaded: false,
+    error: "",
+    sessions: [],
+    openDebts: [],
+    feedback: [],
+    hanchanCounts: {}
+  };
+}
+
+function getHomeSessionStatusLabelV35(status) {
+  return status === "open" ? "進行中" : status === "settled" ? "精算済み" : "記録";
+}
+
+function getHomeSessionMetaV35(session) {
+  const hanchans = Number(homeDashboardStateV35.hanchanCounts[session.id] || 0);
+  const pieces = [getModeLabel(session.game_mode), session.rate_label || "レート未設定"];
+  if (hanchans > 0) pieces.push(`${hanchans}半荘`);
+  return pieces.join(" ／ ");
+}
+
+function buildHomeDashboardV35() {
+  const group = getActiveGroup();
+  const state = homeDashboardStateV35;
+  const sessions = state.sessions || [];
+  const openSession = sessions.find((item) => item.status === "open") || null;
+  const latestSession = sessions[0] || null;
+  const unsettledDebt = (state.openDebts || []).reduce((sum, item) => sum + num(item.remaining_amount_pt), 0);
+  const feedbackOpen = (state.feedback || []).filter((item) => ["open", "in_progress"].includes(item.status)).length;
+  const settledCount = sessions.filter((item) => item.status === "settled").length;
+  const recentSessions = sessions.slice(0, 3);
+
+  const primaryCard = openSession
+    ? `<section class="home-resume-card">
+        <div class="home-resume-heading">
+          <div><p class="eyebrow">IN PROGRESS</p><h2>進行中の対局があります</h2></div>
+          <span class="home-live-badge">入力中</span>
+        </div>
+        <strong class="home-resume-date">${escapeHtml(formatDate(openSession.session_date))}</strong>
+        <p>${escapeHtml(getHomeSessionMetaV35(openSession))}</p>
+        <button type="button" class="home-primary-action" data-v35-open-session="${openSession.id}">対局入力へ戻る <span>›</span></button>
+      </section>`
+    : `<section class="home-resume-card home-resume-card-empty">
+        <div class="home-resume-heading"><div><p class="eyebrow">NEXT MATCH</p><h2>次の麻雀会を記録</h2></div><span class="home-live-badge muted">準備完了</span></div>
+        <p>対局形式、参加者、レートを設定して、その日の記録を開始します。</p>
+        <button type="button" class="home-primary-action" data-v35-action="new-session">新しい対局を作成 <span>＋</span></button>
+      </section>`;
+
+  const recentMarkup = recentSessions.length
+    ? recentSessions.map((session) => `
+      <button type="button" class="home-recent-session" data-v35-open-session="${session.id}">
+        <span class="home-session-status ${session.status === "open" ? "open" : "settled"}">${getHomeSessionStatusLabelV35(session.status)}</span>
+        <span class="home-recent-session-main"><strong>${escapeHtml(formatDate(session.session_date))}</strong><small>${escapeHtml(getHomeSessionMetaV35(session))}</small></span>
+        <span class="home-recent-arrow">›</span>
+      </button>
+    `).join("")
+    : `<div class="home-empty-card"><strong>まだ対局記録がありません。</strong><span>最初の対局を作成すると、ここに直近の記録が表示されます。</span></div>`;
+
+  return `
+    <section class="home-dashboard">
+      <section class="home-dashboard-header">
+        <div><p class="eyebrow">HOME</p><h2>${escapeHtml(group.name)}</h2><p>今の状況と、よく使う操作をまとめています。</p></div>
+        <button type="button" class="home-settings-link" data-v35-action="settings">設定</button>
+      </section>
+
+      ${primaryCard}
+
+      <section class="home-summary-grid">
+        <button type="button" class="home-summary-card" data-v35-action="history"><span>最近の対局</span><strong>${sessions.length}<small>日</small></strong><em>${latestSession ? `直近 ${formatDate(latestSession.session_date)}` : "まだ記録なし"}</em></button>
+        <button type="button" class="home-summary-card" data-v35-action="debt"><span>未精算の借pt</span><strong>${formatPtPlain(unsettledDebt)}</strong><em>${state.openDebts.length ? `${state.openDebts.length}件の精算待ち` : "未精算なし"}</em></button>
+        <button type="button" class="home-summary-card" data-v35-action="feedback"><span>未対応の意見</span><strong>${feedbackOpen}<small>件</small></strong><em>${feedbackOpen ? "確認・対応が必要" : "未対応なし"}</em></button>
+        <button type="button" class="home-summary-card" data-v35-action="ranking"><span>精算済み対局</span><strong>${settledCount}<small>日</small></strong><em>成績・推移を確認</em></button>
+      </section>
+
+      <section class="home-action-panel">
+        <div class="home-section-heading"><div><p class="eyebrow">QUICK ACTIONS</p><h3>よく使う操作</h3></div></div>
+        <div class="home-action-grid">
+          <button type="button" class="home-action-card primary" data-v35-action="new-session"><span>＋</span><strong>対局を作成</strong><small>新しい麻雀会を始める</small></button>
+          <button type="button" class="home-action-card" data-v35-action="history"><span>歴</span><strong>対局履歴</strong><small>過去の記録を探す</small></button>
+          <button type="button" class="home-action-card" data-v35-action="debt"><span>借</span><strong>借ptを確認</strong><small>支払い・受け取りを管理</small></button>
+          <button type="button" class="home-action-card" data-v35-action="feedback"><span>声</span><strong>意見を送る</strong><small>要望・不具合を共有</small></button>
+        </div>
+      </section>
+
+      <section class="home-recent-panel">
+        <div class="home-section-heading"><div><p class="eyebrow">RECENT MATCHES</p><h3>最近の対局</h3></div><button type="button" class="home-text-action" data-v35-action="history">すべて見る</button></div>
+        <div class="home-recent-list">${recentMarkup}</div>
+      </section>
+    </section>
+  `;
+}
+
+function bindHomeDashboardEventsV35(workspace) {
+  workspace.querySelectorAll("[data-v35-open-session]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.v35OpenSession;
+      if (!id) return;
+      activeMatchSessionId = id;
+      localStorage.setItem("jakuroku-active-match-session-id", id);
+      showCreateSession = false;
+      await openNavigationFeatureV34("game-session");
+    });
+  });
+
+  workspace.querySelectorAll("[data-v35-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.v35Action;
+      if (action === "new-session") {
+        showCreateSession = true;
+        sessionDraft = createDefaultSessionDraft();
+        await openNavigationFeatureV34("game-session");
+      } else if (action === "history") {
+        await openNavigationFeatureV34("history");
+      } else if (action === "debt") {
+        await openNavigationFeatureV34("debt-manage");
+      } else if (action === "feedback") {
+        await openNavigationFeatureV34("feedback");
+      } else if (action === "ranking") {
+        await openNavigationFeatureV34("ranking");
+      } else if (action === "settings") {
+        await openSettingsFeatureV34("group");
+      }
+    });
+  });
+}
+
+function renderHomeDashboardV35() {
+  const workspace = getGroupWorkspace();
+  const group = getActiveGroup();
+  if (!group || !currentSession) return;
+
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  workspace.hidden = false;
+
+  if (homeDashboardStateV35.groupId !== group.id) resetHomeDashboardStateV35(group.id);
+
+  if (homeDashboardStateV35.loading) {
+    workspace.innerHTML = `<section class="home-dashboard"><section class="home-dashboard-loading">ホームを読み込み中...</section></section>`;
+    return;
+  }
+
+  if (homeDashboardStateV35.error) {
+    workspace.innerHTML = `<section class="home-dashboard"><section class="home-dashboard-error"><p class="eyebrow">HOME</p><h2>ホームを読み込めませんでした</h2><p>${escapeHtml(homeDashboardStateV35.error)}</p><button type="button" class="primary-button" data-v35-retry-home>再読み込み</button></section></section>`;
+    workspace.querySelector("[data-v35-retry-home]")?.addEventListener("click", () => { void loadHomeDashboardV35(true); });
+    return;
+  }
+
+  if (!homeDashboardStateV35.loaded) {
+    workspace.innerHTML = `<section class="home-dashboard"><section class="home-dashboard-loading">ホームを読み込み中...</section></section>`;
+    void loadHomeDashboardV35();
+    return;
+  }
+
+  workspace.innerHTML = buildHomeDashboardV35();
+  bindHomeDashboardEventsV35(workspace);
+}
+
+async function loadHomeDashboardV35(force = false) {
+  if (!currentSession || !activeGroupId) return;
+  const groupId = activeGroupId;
+  if (homeDashboardStateV35.groupId !== groupId) resetHomeDashboardStateV35(groupId);
+  if (homeDashboardStateV35.loading && !force) return;
+
+  const token = ++homeDashboardLoadTokenV35;
+  homeDashboardStateV35.loading = true;
+  homeDashboardStateV35.error = "";
+  if (currentTab === "home") renderHomeDashboardV35();
+
+  try {
+    const [sessionsResult, debtsResult, feedbackResult] = await Promise.all([
+      supabaseClient
+        .from("match_sessions")
+        .select("id, session_date, game_mode, rate_label, status, settled_at, created_at")
+        .eq("group_id", groupId)
+        .is("deleted_at", null)
+        .order("session_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(12),
+      supabaseClient
+        .from("debt_records")
+        .select("id, remaining_amount_pt")
+        .eq("group_id", groupId)
+        .eq("status", "open"),
+      supabaseClient
+        .from("group_feedback")
+        .select("id, status")
+        .eq("group_id", groupId)
+    ]);
+
+    if (sessionsResult.error) throw sessionsResult.error;
+    if (token !== homeDashboardLoadTokenV35 || activeGroupId !== groupId) return;
+
+    const sessions = sessionsResult.data || [];
+    const sessionIds = sessions.map((item) => item.id);
+    let hanchanCounts = {};
+    if (sessionIds.length) {
+      const hanchanResult = await supabaseClient
+        .from("match_hanchans")
+        .select("session_id")
+        .in("session_id", sessionIds);
+      if (!hanchanResult.error) {
+        hanchanCounts = (hanchanResult.data || []).reduce((acc, item) => {
+          acc[item.session_id] = (acc[item.session_id] || 0) + 1;
+          return acc;
+        }, {});
+      }
+    }
+
+    if (token !== homeDashboardLoadTokenV35 || activeGroupId !== groupId) return;
+    homeDashboardStateV35 = {
+      groupId,
+      loading: false,
+      loaded: true,
+      error: "",
+      sessions,
+      openDebts: debtsResult.error ? [] : (debtsResult.data || []),
+      feedback: feedbackResult.error ? [] : (feedbackResult.data || []),
+      hanchanCounts
+    };
+  } catch (error) {
+    if (token !== homeDashboardLoadTokenV35 || activeGroupId !== groupId) return;
+    homeDashboardStateV35.loading = false;
+    homeDashboardStateV35.loaded = false;
+    homeDashboardStateV35.error = error?.message || "通信状態を確認してください。";
+  }
+
+  if (currentTab === "home" && activeGroupId === groupId) renderHomeDashboardV35();
+}
+
+const renderGroupWorkspaceBeforeV35 = renderGroupWorkspace;
+renderGroupWorkspace = function() {
+  if (!currentSession || !getActiveGroup()) {
+    return renderGroupWorkspaceBeforeV35();
+  }
+  renderHomeDashboardV35();
+};
+
+const switchTabBeforeV35 = switchTab;
+switchTab = async function(tab) {
+  const result = await switchTabBeforeV35(tab);
+  if (tab === "home") {
+    navigationHubV34 = "";
+    settingsFocusV34 = "";
+    setPrimaryNavActiveV34("home");
+    renderHomeDashboardV35();
+  }
+  return result;
+};
+
+const refreshCurrentViewFromRealtimeBeforeV35 = refreshCurrentViewFromRealtime;
+refreshCurrentViewFromRealtime = async function(force = false) {
+  if (currentTab === "home") {
+    if (!force && isRealtimeInputInProgress()) return;
+    await loadHomeDashboardV35(true);
+    return;
+  }
+  return refreshCurrentViewFromRealtimeBeforeV35(force);
+};
+
+const updateAuthUIBeforeV35 = updateAuthUI;
+updateAuthUI = async function(session) {
+  if (!session) resetHomeDashboardStateV35();
+  await updateAuthUIBeforeV35(session);
+};
