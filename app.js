@@ -7201,7 +7201,9 @@ function renderCreateSessionWizardV40() {
     next.hidden = step === CREATE_SESSION_STEPS_V40.length - 1;
     const message = document.getElementById("createSessionMessage");
     if (message && step !== CREATE_SESSION_STEPS_V40.length - 1) message.textContent = "";
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (!globalThis.__morikenCreateScrollRestoreV43) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   controls.querySelector("[data-v40-back]").addEventListener("click", () => {
@@ -7535,4 +7537,69 @@ const renderDebtPageBeforeV42 = renderDebtPage;
 renderDebtPage = function() {
   renderDebtPageBeforeV42();
   decorateContentCardsV42();
+};
+
+
+/* v43: keep the current viewport while options are selected in the create-session wizard */
+function getCreateScrollAnchorV43(target) {
+  if (!(target instanceof Element)) return null;
+  if (target.closest("[data-session-member-id]")) return "members";
+  if (target.closest("[data-session-field='rateLabel']")) return "settings";
+  if (target.closest("[data-session-mode]")) return "mode";
+  return null;
+}
+
+function findCreateScrollAnchorV43(form, anchor) {
+  if (!form) return null;
+  if (anchor === "members") return form.querySelector(".game-member-grid")?.closest(".game-section") || null;
+  if (anchor === "settings") return form.querySelector(".game-settings-grid")?.closest(".game-section") || null;
+  if (anchor === "mode") return form.querySelector(".mode-preset-grid")?.closest(".game-section") || null;
+  return null;
+}
+
+function captureCreateScrollV43(target) {
+  const form = document.getElementById("createSessionForm");
+  const anchor = getCreateScrollAnchorV43(target);
+  const section = findCreateScrollAnchorV43(form, anchor);
+  if (!anchor || !section) return;
+  globalThis.__morikenCreateScrollRestoreV43 = {
+    anchor,
+    viewportOffset: section.getBoundingClientRect().top,
+    fallbackY: window.scrollY
+  };
+}
+
+function mountCreateScrollCaptureV43() {
+  const form = document.getElementById("createSessionForm");
+  if (!form || form.dataset.v43ScrollCapture === "1") return;
+  form.dataset.v43ScrollCapture = "1";
+
+  form.addEventListener("click", (event) => {
+    if (event.target.closest("[data-session-mode]")) captureCreateScrollV43(event.target);
+  }, true);
+
+  form.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target.matches("[data-session-member-id], [data-session-field='rateLabel']")) {
+      captureCreateScrollV43(target);
+    }
+  }, true);
+}
+
+const renderCreateSessionViewBeforeV43 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  const restore = globalThis.__morikenCreateScrollRestoreV43 || null;
+  renderCreateSessionViewBeforeV43();
+  mountCreateScrollCaptureV43();
+
+  if (!restore) return;
+  globalThis.__morikenCreateScrollRestoreV43 = null;
+  requestAnimationFrame(() => {
+    const form = document.getElementById("createSessionForm");
+    const section = findCreateScrollAnchorV43(form, restore.anchor);
+    const nextY = section
+      ? Math.max(0, window.scrollY + section.getBoundingClientRect().top - restore.viewportOffset)
+      : Math.max(0, Number(restore.fallbackY) || 0);
+    window.scrollTo({ top: nextY, behavior: "auto" });
+  });
 };
