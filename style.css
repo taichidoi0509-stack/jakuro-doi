@@ -1215,3 +1215,82 @@ button.history-calendar-cell { cursor: pointer; }
     font-size: clamp(17px, 4.6vw, 21px);
   }
 }
+
+
+/* v40: guided session creation wizard */
+.create-wizard-progress-v40 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 16px 0 18px;
+  padding: 8px;
+  border: 1px solid #dce9e0;
+  border-radius: 16px;
+  background: #f7fbf8;
+}
+.create-wizard-progress-item-v40 {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: #87948d;
+}
+.create-wizard-progress-item-v40 span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #c8d8ce;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 900;
+}
+.create-wizard-progress-item-v40 small { font-size: 9px; font-weight: 800; white-space: nowrap; }
+.create-wizard-progress-item-v40.active { color: var(--green); background: #eaf5ed; }
+.create-wizard-progress-item-v40.active span { border-color: var(--green); background: var(--green); color: #fff; }
+.create-wizard-progress-item-v40.done { color: #356b51; }
+.create-wizard-progress-item-v40.done span { border-color: #8db99e; background: #dff0e5; }
+.create-wizard-progress-item-v40:disabled { cursor: default; opacity: .72; }
+.create-wizard-section-v40[hidden] { display: none !important; }
+.create-wizard-section-v40.is-wizard-active-v40 { animation: wizard-fade-v40 .16s ease both; }
+@keyframes wizard-fade-v40 { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.create-wizard-controls-v40 {
+  position: sticky;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin: 16px -4px 0;
+  padding: 9px;
+  border: 1px solid #d9e5dd;
+  border-radius: 16px;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 8px 20px rgba(17, 48, 34, .12);
+  backdrop-filter: blur(10px);
+}
+.create-wizard-back-v40, .create-wizard-next-v40 {
+  min-height: 42px;
+  padding: 0 13px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.create-wizard-back-v40 { border: 1px solid #d5e2d9; background: #fff; color: #52705f; }
+.create-wizard-next-v40 { border: 0; background: var(--green); color: #fff; }
+.create-wizard-controls-copy-v40 { display: grid; min-width: 0; gap: 2px; text-align: center; }
+.create-wizard-controls-copy-v40 small { color: #7f8d85; font-size: 8px; font-weight: 900; letter-spacing: .08em; }
+.create-wizard-controls-copy-v40 strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+#createSessionButton[hidden] { display: none !important; }
+@media (max-width: 390px) {
+  .create-wizard-progress-v40 { gap: 3px; padding: 6px; }
+  .create-wizard-progress-item-v40 small { font-size: 8px; }
+  .create-wizard-controls-v40 { bottom: calc(87px + env(safe-area-inset-bottom)); }
+  .create-wizard-back-v40, .create-wizard-next-v40 { padding: 0 10px; }
+}

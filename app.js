@@ -7102,3 +7102,151 @@ setPrimaryNavActiveV34 = function(area) {
 };
 
 configurePrimaryNavigationV37();
+
+
+/* v40: guided session creation wizard */
+let createSessionStepV40 = 0;
+const CREATE_SESSION_STEPS_V40 = [
+  { label: "形式", detail: "対局形式" },
+  { label: "設定", detail: "日付・レート・会場" },
+  { label: "参加者", detail: "ウマ・参加者" },
+  { label: "確認", detail: "メモ・開始" }
+];
+
+function clampCreateSessionStepV40(value) {
+  return Math.max(0, Math.min(CREATE_SESSION_STEPS_V40.length - 1, Number(value) || 0));
+}
+
+function getCreateSessionWizardSectionsV40(form) {
+  const mode = form.querySelector(".mode-preset-grid")?.closest(".game-section");
+  const basic = form.querySelector(".game-settings-grid")?.closest(".game-section");
+  const uma = form.querySelector(".uma-grid")?.closest(".game-section");
+  const members = form.querySelector(".game-member-grid")?.closest(".game-section");
+  const venue = form.querySelector(".session-venue-create-section");
+  const notes = form.querySelector("textarea[data-session-field='notes']")?.closest(".game-section");
+  return [
+    [mode].filter(Boolean),
+    [basic, venue].filter(Boolean),
+    [uma, members].filter(Boolean),
+    [notes].filter(Boolean)
+  ];
+}
+
+function validateCreateSessionStepV40(step) {
+  const preset = getModePreset(sessionDraft.gameMode);
+  if (step === 0 && !sessionDraft.gameMode) return "対局形式を選択してください。";
+  if (step === 1) {
+    if (!sessionDraft.sessionDate) return "日付を入力してください。";
+    if (sessionDraft.startingPoints <= 0 || sessionDraft.chipValue < 0 || sessionDraft.rateMultiplier <= 0 || sessionDraft.rateMultiplier > 10000) {
+      return "初期持ち点・チップ単価・レート倍率を確認してください。";
+    }
+    if (sessionDraft.rateLabel === "カスタム" && !String(sessionDraft.customRateLabel || "").trim()) return "カスタム名を入力してください。";
+  }
+  if (step === 2 && sessionDraft.memberIds.length !== preset.playerCount) return `参加者を${preset.playerCount}人選択してください。`;
+  return "";
+}
+
+function renderCreateSessionWizardV40() {
+  const form = document.getElementById("createSessionForm");
+  if (!form || form.dataset.v40WizardReady === "1") return;
+  form.dataset.v40WizardReady = "1";
+  createSessionStepV40 = clampCreateSessionStepV40(createSessionStepV40);
+  const groups = getCreateSessionWizardSectionsV40(form);
+  groups.flat().forEach((section) => section.classList.add("create-wizard-section-v40"));
+
+  const heading = form.closest(".game-card")?.querySelector(".game-card-heading");
+  const intro = form.closest(".game-card")?.querySelector(".game-description");
+  const progress = document.createElement("nav");
+  progress.className = "create-wizard-progress-v40";
+  progress.setAttribute("aria-label", "対局作成の進行状況");
+  progress.innerHTML = CREATE_SESSION_STEPS_V40.map((item, index) => `
+    <button type="button" class="create-wizard-progress-item-v40" data-v40-go-step="${index}" aria-label="${index + 1} ${escapeHtml(item.detail)}">
+      <span>${index + 1}</span><small>${escapeHtml(item.label)}</small>
+    </button>
+  `).join("");
+  if (intro) intro.insertAdjacentElement("afterend", progress);
+  else if (heading) heading.insertAdjacentElement("afterend", progress);
+  else form.insertAdjacentElement("beforebegin", progress);
+
+  const controls = document.createElement("div");
+  controls.className = "create-wizard-controls-v40";
+  controls.innerHTML = `
+    <button type="button" class="create-wizard-back-v40" data-v40-back>戻る</button>
+    <div class="create-wizard-controls-copy-v40"><small data-v40-step-count></small><strong data-v40-step-title></strong></div>
+    <button type="button" class="create-wizard-next-v40" data-v40-next>次へ</button>
+  `;
+  form.appendChild(controls);
+
+  const update = () => {
+    const step = clampCreateSessionStepV40(createSessionStepV40);
+    createSessionStepV40 = step;
+    groups.forEach((sectionGroup, index) => {
+      sectionGroup.forEach((section) => {
+        section.hidden = index !== step;
+        section.classList.toggle("is-wizard-active-v40", index === step);
+      });
+    });
+    progress.querySelectorAll("[data-v40-go-step]").forEach((button) => {
+      const index = Number(button.dataset.v40GoStep);
+      button.classList.toggle("active", index === step);
+      button.classList.toggle("done", index < step);
+      button.disabled = index > step;
+    });
+    controls.querySelector("[data-v40-back]").hidden = step === 0;
+    controls.querySelector("[data-v40-step-count]").textContent = `STEP ${step + 1} / ${CREATE_SESSION_STEPS_V40.length}`;
+    controls.querySelector("[data-v40-step-title]").textContent = CREATE_SESSION_STEPS_V40[step].detail;
+    const next = controls.querySelector("[data-v40-next]");
+    const submit = document.getElementById("createSessionButton");
+    if (submit) submit.hidden = step !== CREATE_SESSION_STEPS_V40.length - 1;
+    next.hidden = step === CREATE_SESSION_STEPS_V40.length - 1;
+    const message = document.getElementById("createSessionMessage");
+    if (message && step !== CREATE_SESSION_STEPS_V40.length - 1) message.textContent = "";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  controls.querySelector("[data-v40-back]").addEventListener("click", () => {
+    createSessionStepV40 -= 1;
+    update();
+  });
+  controls.querySelector("[data-v40-next]").addEventListener("click", () => {
+    const error = validateCreateSessionStepV40(createSessionStepV40);
+    if (error) {
+      const message = document.getElementById("createSessionMessage");
+      if (message) message.textContent = error;
+      return;
+    }
+    createSessionStepV40 += 1;
+    update();
+  });
+  progress.querySelectorAll("[data-v40-go-step]").forEach((button) => button.addEventListener("click", () => {
+    const target = Number(button.dataset.v40GoStep);
+    if (target > createSessionStepV40) return;
+    createSessionStepV40 = target;
+    update();
+  }));
+  form.addEventListener("input", () => {
+    const message = document.getElementById("createSessionMessage");
+    if (message) message.textContent = "";
+  });
+  update();
+}
+
+const renderCreateSessionViewBeforeV40 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  renderCreateSessionViewBeforeV40();
+  renderCreateSessionWizardV40();
+};
+
+const createMatchSessionBeforeV40 = createMatchSession;
+createMatchSession = async function(event) {
+  const error = validateCreateSessionStepV40(2);
+  if (error) {
+    event?.preventDefault?.();
+    const message = document.getElementById("createSessionMessage");
+    if (message) message.textContent = error;
+    createSessionStepV40 = error.includes("参加者") ? 2 : 1;
+    renderCreateSessionView();
+    return;
+  }
+  return createMatchSessionBeforeV40(event);
+};
