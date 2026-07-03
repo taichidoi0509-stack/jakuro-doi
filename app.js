@@ -316,7 +316,7 @@ function createDefaultHanchanDraft() {
   if (!activeMatchSession) return null;
   const results = {};
   activeMatchMembers.forEach((member, index) => { results[member.member_id] = { rank: index + 1, finalPoints: "", pointMode: "manual" }; });
-  return { uma: [...activeMatchSession.default_uma], notes: "", results, tobiTransfers: [], yakumanRecords: [] };
+  return { uma: [...activeMatchSession.default_uma], notes: "", results, rankMode: "auto", tobiTransfers: [], yakumanRecords: [] };
 }
 function createEmptyYakumanRecord() { return { yakumanName: "国士無双", customName: "", winnerMemberId: "", winType: "tsumo", houjuuMemberId: "" }; }
 function getYakumanDisplayName(record) { return record.yakumanName === "その他" ? record.customName.trim() : record.yakumanName; }
@@ -356,6 +356,7 @@ function createHanchanDraftFromRecord(hanchanId) {
     uma: Array.isArray(hanchan.uma) ? [...hanchan.uma] : [...activeMatchSession.default_uma],
     notes: hanchan.notes || "",
     results,
+    rankMode: "auto",
     tobiTransfers,
     yakumanRecords
   };
@@ -1557,9 +1558,76 @@ function applyAutoFinalPoints() {
   const expected = num(activeMatchSession.starting_points) * activeMatchMembers.length, used = entered.reduce((s,m) => s + Number(hanchanDraft.results[m.member_id].finalPoints), 0);
   hanchanDraft.results[target.member_id].finalPoints = expected - used; hanchanDraft.results[target.member_id].pointMode = "auto";
 }
+function getAutoRanksFromFinalPoints() {
+  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+
+  const ordered = [...activeMatchMembers].sort((a, b) => Number(hanchanDraft.results[b.member_id].finalPoints) - Number(hanchanDraft.results[a.member_id].finalPoints));
+  const ranks = {};
+  const umaByMember = {};
+  let cursor = 0;
+  let hasTie = false;
+
+  while (cursor < ordered.length) {
+    const points = Number(hanchanDraft.results[ordered[cursor].member_id].finalPoints);
+    let end = cursor + 1;
+    while (end < ordered.length && Number(hanchanDraft.results[ordered[end].member_id].finalPoints) === points) end += 1;
+    const group = ordered.slice(cursor, end);
+    const rank = cursor + 1;
+    const splitUma = roundOne(hanchanDraft.uma.slice(cursor, end).reduce((sum, value) => sum + num(value), 0) / group.length);
+    if (group.length > 1) hasTie = true;
+    group.forEach((member) => {
+      ranks[member.member_id] = rank;
+      umaByMember[member.member_id] = splitUma;
+    });
+    cursor = end;
+  }
+
+  return { complete: true, hasTie, valid: true, ranks, umaByMember };
+}
+
+function getManualRanksFromDraft() {
+  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+  const ranks = {};
+  const seen = new Set();
+  const count = activeMatchMembers.length;
+  for (const member of activeMatchMembers) {
+    const rank = Number(hanchanDraft.results[member.member_id].rank);
+    if (!Number.isInteger(rank) || rank < 1 || rank > count || seen.has(rank)) {
+      return { complete: true, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+    }
+    seen.add(rank);
+    ranks[member.member_id] = rank;
+  }
+  const umaByMember = {};
+  activeMatchMembers.forEach((member) => { umaByMember[member.member_id] = num(hanchanDraft.uma[ranks[member.member_id] - 1]); });
+  return { complete: true, hasTie: false, valid: true, ranks, umaByMember };
+}
+
+function getDraftRankState() {
+  return hanchanDraft?.rankMode === "manual" ? getManualRanksFromDraft() : getAutoRanksFromFinalPoints();
+}
+
+function syncAutoRanks() {
+  const rankState = getDraftRankState();
+  if (!rankState.complete || !rankState.valid || hanchanDraft?.rankMode === "manual") return rankState;
+  activeMatchMembers.forEach((member) => { hanchanDraft.results[member.member_id].rank = rankState.ranks[member.member_id]; });
+  return rankState;
+}
+
+function getDraftRank(memberId) {
+  const rankState = syncAutoRanks();
+  return rankState.complete && rankState.valid ? rankState.ranks[memberId] : null;
+}
+
 function calculateDraftHanchanResult(memberId) {
-  const r = hanchanDraft.results[memberId]; if (!hasEnteredFinalPoints(memberId)) return { scorePoints: null, umaPoints: null, tobiPoints: null, totalPoints: null };
-  const score = roundOne((Number(r.finalPoints) - num(activeMatchSession.starting_points)) / 1000), uma = num(hanchanDraft.uma[Number(r.rank) - 1]), tobi = roundOne(hanchanDraft.tobiTransfers.reduce((s,t) => s + (t.toMemberId === memberId ? num(t.points) : 0) - (t.fromMemberId === memberId ? num(t.points) : 0), 0));
+  const r = hanchanDraft.results[memberId];
+  const rankState = syncAutoRanks();
+  if (!hasEnteredFinalPoints(memberId) || !rankState.complete || !rankState.valid) return { scorePoints: null, umaPoints: null, tobiPoints: null, totalPoints: null };
+  const score = roundOne((Number(r.finalPoints) - num(activeMatchSession.starting_points)) / 1000);
+  const uma = num(rankState.umaByMember[memberId]);
+  const tobi = roundOne(hanchanDraft.tobiTransfers.reduce((sum, transfer) => sum + (transfer.toMemberId === memberId ? num(transfer.points) : 0) - (transfer.fromMemberId === memberId ? num(transfer.points) : 0), 0));
   return { scorePoints: score, umaPoints: uma, tobiPoints: tobi, totalPoints: roundOne(score + uma + tobi) };
 }
 function renderHanchanEditor() {
@@ -1569,16 +1637,37 @@ function renderHanchanEditor() {
   const no = isEditing ? editing.sequence_no : activeHanchans.length + 1;
   const balance = getDraftPointBalance();
   const uma = hanchanDraft.uma.map((v,i) => `<label>${i+1}位<input type="number" step="0.1" data-hanchan-uma-index="${i}" value="${v}"></label>`).join("");
-  const cards = activeMatchMembers.map((m) => { const r = hanchanDraft.results[m.member_id], c = calculateDraftHanchanResult(m.member_id), options = Array.from({ length: activeMatchMembers.length }, (_,i) => `<option value="${i+1}" ${Number(r.rank) === i+1 ? "selected" : ""}>${i+1}位</option>`).join(""); return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid"><label>順位<select data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="rank">${options}</select></label><label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`; }).join("");
+  const rankState = getDraftRankState();
+  const showManualRankControl = hanchanDraft.rankMode === "manual";
+  const cards = activeMatchMembers.map((m) => {
+    const r = hanchanDraft.results[m.member_id];
+    const c = calculateDraftHanchanResult(m.member_id);
+    const rankLabel = !rankState.complete
+      ? "持ち点入力後に確定"
+      : !rankState.valid
+        ? "順位を1〜${activeMatchMembers.length}位で重複なく指定"
+        : hanchanDraft.rankMode === "manual"
+          ? `${rankState.ranks[m.member_id]}位（手入力）`
+          : rankState.hasTie
+            ? `${rankState.ranks[m.member_id]}位同着（ウマを均等分配）`
+            : `${rankState.ranks[m.member_id]}位（自動）`;
+    const rankControl = showManualRankControl
+      ? `<label>順位<select data-hanchan-manual-rank-member-id="${m.member_id}">${Array.from({ length: activeMatchMembers.length }, (_, index) => `<option value="${index + 1}" ${Number(r.rank) === index + 1 ? "selected" : ""}>${index + 1}位</option>`).join("")}</select></label>`
+      : `<label>順位<output class="auto-rank-output ${!rankState.valid && rankState.complete ? "error" : ""}" data-hanchan-rank-member-id="${m.member_id}">${rankLabel}</output></label>`;
+    return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
+  }).join("");
   const transfers = hanchanDraft.tobiTransfers.map((t,i) => `<div class="tobi-transfer-row"><label>飛ばされた人<select data-tobi-index="${i}" data-tobi-field="fromMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.fromMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>飛ばした人<select data-tobi-index="${i}" data-tobi-field="toMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.toMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>移動量<input type="number" min="0.1" step="0.1" value="${t.points}" data-tobi-index="${i}" data-tobi-field="points"></label><button type="button" class="remove-transfer-button" data-remove-tobi-index="${i}">削除</button></div>`).join("");
   const yakumans = hanchanDraft.yakumanRecords.map((r,i) => `<article class="yakuman-entry-card"><div class="yakuman-entry-heading"><strong>役満 ${i+1}</strong><button type="button" class="remove-transfer-button" data-remove-yakuman-index="${i}">削除</button></div><div class="yakuman-entry-grid"><label>役満<select data-yakuman-index="${i}" data-yakuman-field="yakumanName">${YAKUMAN_OPTIONS.map((name) => `<option value="${name}" ${r.yakumanName === name ? "selected" : ""}>${name}</option>`).join("")}</select></label>${r.yakumanName === "その他" ? `<label>役満名<input type="text" maxlength="60" value="${escapeHtml(r.customName)}" data-yakuman-index="${i}" data-yakuman-field="customName"></label>` : ""}<label>あがった人<select data-yakuman-index="${i}" data-yakuman-field="winnerMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.winnerMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>あがり方<select data-yakuman-index="${i}" data-yakuman-field="winType"><option value="tsumo" ${r.winType === "tsumo" ? "selected" : ""}>ツモ</option><option value="ron" ${r.winType === "ron" ? "selected" : ""}>ロン</option></select></label>${r.winType === "ron" ? `<label>放銃者<select data-yakuman-index="${i}" data-yakuman-field="houjuuMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.houjuuMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label>` : ""}</div></article>`).join("");
   const balanceText = balance.complete ? balance.difference === 0 ? `最終持ち点合計：${balance.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${balance.total.toLocaleString()}点 / 差額 ${balance.difference > 0 ? "+" : ""}${balance.difference.toLocaleString()}点` : `最終持ち点入力：${balance.enteredCount} / ${activeMatchMembers.length}人`;
-  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div></section><section class="game-section"><p class="game-section-title">最終持ち点・順位</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">参加人数−1人分を入力すると、残り1人を自動計算します。マイナス持ち点も入力できます。</p><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 5移動</button></div></div><p class="game-section-note">1人飛ばしは10の移動を1件。ダブロンは飛ばされた人から各人へ5ずつの移動を2件追加します。</p><div class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></section><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
+  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div></section><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">順位は最終持ち点の高い順に自動で確定します。同点は同着として、該当順位のウマを均等に分配します。例：2・3位同点なら、2位ウマと3位ウマの平均を両者へ配分します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 5移動</button></div></div><p class="game-section-note">1人飛ばしは10の移動を1件。ダブロンは飛ばされた人から各人へ5ずつの移動を2件追加します。</p><div class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></section><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
 }
 function bindHanchanEditorEvents() {
   const form = document.getElementById("hanchanForm"); if (!form || !hanchanDraft) return;
   document.querySelectorAll("[data-hanchan-uma-index]").forEach((input) => input.addEventListener("input", () => { hanchanDraft.uma[Number(input.dataset.hanchanUmaIndex)] = num(input.value); refreshHanchanPreview(); refreshAllHanchanCards(); }));
-  document.querySelectorAll("[data-hanchan-result-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => { const id = input.dataset.hanchanResultMemberId, field = input.dataset.hanchanResultField; if (field === "finalPoints") { hanchanDraft.results[id].finalPoints = input.value; hanchanDraft.results[id].pointMode = "manual"; applySignedInputClass(input); applyAutoFinalPoints(); syncAutoPointInputs(); } else hanchanDraft.results[id][field] = num(input.value); refreshHanchanPreview(); refreshAllHanchanCards(); refreshPointBalance(); }));
+  document.querySelectorAll("[data-hanchan-result-field]").forEach((input) => input.addEventListener("input", () => { const id = input.dataset.hanchanResultMemberId; hanchanDraft.results[id].finalPoints = input.value; hanchanDraft.results[id].pointMode = "manual"; applySignedInputClass(input); applyAutoFinalPoints(); syncAutoPointInputs(); syncAutoRanks(); refreshAutoRankOutputs(); refreshHanchanPreview(); refreshAllHanchanCards(); refreshPointBalance(); }));
+  document.getElementById("enableManualRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "manual"; const automatic = getAutoRanksFromFinalPoints(); if (automatic.complete && automatic.valid) activeMatchMembers.forEach((member) => { hanchanDraft.results[member.member_id].rank = automatic.ranks[member.member_id]; }); renderActiveSessionView(); });
+  document.getElementById("enableAutoRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "auto"; syncAutoRanks(); renderActiveSessionView(); });
+  document.querySelectorAll("[data-hanchan-manual-rank-member-id]").forEach((input) => input.addEventListener("change", () => { const id = input.dataset.hanchanManualRankMemberId; hanchanDraft.results[id].rank = Number(input.value); refreshHanchanPreview(); refreshAllHanchanCards(); }));
   document.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => { const t = hanchanDraft.tobiTransfers[Number(input.dataset.tobiIndex)], field = input.dataset.tobiField; t[field] = field === "points" ? num(input.value) : input.value; refreshHanchanPreview(); refreshAllHanchanCards(); }));
   document.getElementById("addTobiTenButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 10 }); renderActiveSessionView(); }); document.getElementById("addTobiFiveButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 5 }); renderActiveSessionView(); });
   document.querySelectorAll("[data-remove-tobi-index]").forEach((button) => button.addEventListener("click", () => { hanchanDraft.tobiTransfers.splice(Number(button.dataset.removeTobiIndex), 1); renderActiveSessionView(); }));
@@ -1587,6 +1676,15 @@ function bindHanchanEditorEvents() {
   document.querySelector("[data-hanchan-note]")?.addEventListener("input", (e) => hanchanDraft.notes = e.target.value); form.addEventListener("submit", addMatchHanchan); refreshHanchanPreview(); refreshPointBalance();
 }
 function syncAutoPointInputs() { activeMatchMembers.forEach((m) => { const r = hanchanDraft.results[m.member_id], input = document.querySelector(`[data-hanchan-point-input-id="${m.member_id}"]`), badge = document.querySelector(`[data-hanchan-point-mode-id="${m.member_id}"]`); if (input) { input.value = r.finalPoints; applySignedInputClass(input, r.finalPoints); } if (badge) { badge.textContent = r.pointMode === "auto" ? "自動計算" : "手入力"; badge.classList.toggle("auto", r.pointMode === "auto"); } }); }
+function refreshAutoRankOutputs() {
+  const state = getDraftRankState();
+  activeMatchMembers.forEach((member) => {
+    const output = document.querySelector(`[data-hanchan-rank-member-id="${member.member_id}"]`);
+    if (!output) return;
+    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.hasTie ? `${state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
+    output.classList.toggle("error", Boolean(state.complete && !state.valid));
+  });
+}
 function refreshPointBalance() { const el = document.getElementById("hanchanPointBalance"); if (!el) return; const b = getDraftPointBalance(); el.textContent = b.complete ? b.difference === 0 ? `最終持ち点合計：${b.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${b.total.toLocaleString()}点 / 差額 ${b.difference > 0 ? "+" : ""}${b.difference.toLocaleString()}点` : `最終持ち点入力：${b.enteredCount} / ${activeMatchMembers.length}人`; el.classList.toggle("error", b.complete && b.difference !== 0); }
 function refreshAllHanchanCards() { activeMatchMembers.forEach((m) => refreshHanchanMemberCard(m.member_id)); }
 function refreshHanchanMemberCard(id) {
@@ -1604,16 +1702,30 @@ function refreshHanchanPreview() {
   const total = complete ? activeMatchMembers.reduce((sum, member) => sum + calculateDraftHanchanResult(member.member_id).totalPoints, 0) : null;
   box.innerHTML = `<p class="game-preview-title">この半荘の収支プレビュー</p><div class="preview-list">${activeMatchMembers.map((member) => `<div class="preview-row"><span>${escapeHtml(getMemberName(member.member_id))}</span><strong>${formatScoreMarkup(calculateDraftHanchanResult(member.member_id).totalPoints)}</strong></div>`).join("")}</div><div class="preview-footer"><span>合計</span><strong>${formatScoreMarkup(total)}</strong></div>`;
 }
+function getEffectiveUmaForSave(rankState) {
+  const effective = hanchanDraft.uma.map(num);
+  if (!rankState?.valid || hanchanDraft.rankMode === "manual") return effective;
+  const groups = new Map();
+  activeMatchMembers.forEach((member) => {
+    const rank = rankState.ranks[member.member_id];
+    if (!groups.has(rank)) groups.set(rank, []);
+    groups.get(rank).push(member.member_id);
+  });
+  groups.forEach((memberIds, rank) => {
+    if (memberIds.length > 1) effective[rank - 1] = num(rankState.umaByMember[memberIds[0]]);
+  });
+  return effective;
+}
 function validateYakumans() { for (const r of hanchanDraft.yakumanRecords) { const name = getYakumanDisplayName(r); if (!name || name.length > 60) return "役満名を正しく入力してください。"; if (!r.winnerMemberId) return "役満のあがった人を選択してください。"; if (r.winType === "ron" && (!r.houjuuMemberId || r.houjuuMemberId === r.winnerMemberId)) return "ロン役満の放銃者を正しく選択してください。"; } return null; }
 async function addMatchHanchan(e) {
   e.preventDefault();
   const message = document.getElementById("hanchanFormMessage");
   const submit = document.getElementById("saveHanchanButton");
   const isEditing = Boolean(editingHanchanId);
-  const ranks = activeMatchMembers.map((m) => num(hanchanDraft.results[m.member_id].rank));
+  const rankState = syncAutoRanks();
 
-  if (new Set(ranks).size !== activeMatchMembers.length) {
-    message.textContent = "順位が重複しています。";
+  if (!rankState.valid) {
+    message.textContent = hanchanDraft.rankMode === "manual" ? `手入力の順位を1位から${activeMatchMembers.length}位まで重複なく指定してください。` : "順位を自動判定できません。";
     return;
   }
   if (!activeMatchMembers.every((m) => hasEnteredFinalPoints(m.member_id))) {
@@ -1636,10 +1748,10 @@ async function addMatchHanchan(e) {
   }
 
   const payload = {
-    p_uma: hanchanDraft.uma.map(num),
+    p_uma: getEffectiveUmaForSave(rankState),
     p_results: activeMatchMembers.map((m) => ({
       member_id: m.member_id,
-      rank: num(hanchanDraft.results[m.member_id].rank),
+      rank: rankState.ranks[m.member_id],
       final_points: Number(hanchanDraft.results[m.member_id].finalPoints)
     })),
     p_tobi_transfers: hanchanDraft.tobiTransfers.map((t) => ({
@@ -7678,4 +7790,138 @@ renderCreateSessionView = function() {
   renderCreateSessionViewBeforeV44();
   mountCreateViewportCaptureV44();
   if (restore) restoreCreateViewportV44(restore);
+};
+
+
+/* v47: avoid full-page rerenders while configuring a new daily session */
+function clearCreateSessionMessageV47() {
+  const message = document.getElementById("createSessionMessage");
+  if (message) message.textContent = "";
+}
+
+function updateCreateMemberSelectionV47(form) {
+  if (!form) return;
+  const limit = getModePreset(sessionDraft.gameMode).playerCount;
+  form.querySelectorAll("[data-session-member-id]").forEach((box) => {
+    const selected = sessionDraft.memberIds.includes(box.dataset.sessionMemberId);
+    box.checked = selected;
+    box.closest(".game-member-choice")?.classList.toggle("selected", selected);
+  });
+  const counter = form.querySelector(".selection-counter");
+  if (counter) counter.textContent = `${sessionDraft.memberIds.length} / ${limit}人`;
+}
+
+function syncCreateRateBlockV47(form) {
+  if (!form) return;
+  const select = form.querySelector("[data-session-field='rateLabel']");
+  if (select) select.value = sessionDraft.rateLabel;
+  const basicSection = select?.closest(".game-section");
+  if (!basicSection) return;
+  basicSection.querySelector(".custom-rate-grid")?.remove();
+  basicSection.querySelector(".selected-rate-note")?.remove();
+
+  const settingsGrid = basicSection.querySelector(".game-settings-grid");
+  if (!settingsGrid) return;
+  if (sessionDraft.rateLabel === "カスタム") {
+    const custom = document.createElement("div");
+    custom.className = "game-settings-grid custom-rate-grid";
+    custom.innerHTML = `<label>カスタム名<input type="text" maxlength="40" data-session-field="customRateLabel" value="${escapeHtml(sessionDraft.customRateLabel)}" placeholder="例：特別レート"></label><label>レート倍率（pt / 収支1）<input type="number" min="0.01" max="10000" step="0.01" data-session-field="rateMultiplier" value="${sessionDraft.rateMultiplier}"></label>`;
+    settingsGrid.insertAdjacentElement("afterend", custom);
+    custom.querySelectorAll("[data-session-field]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const field = input.dataset.sessionField;
+        sessionDraft[field] = field === "rateMultiplier" ? num(input.value) : input.value;
+      });
+    });
+  } else {
+    const note = document.createElement("p");
+    note.className = "selected-rate-note";
+    note.innerHTML = `選択中：<strong>収支1 = ${sessionDraft.rateMultiplier} pt</strong>`;
+    settingsGrid.insertAdjacentElement("afterend", note);
+  }
+}
+
+function updateCreateModeInlineV47(form, next) {
+  if (!form || !next || !MODE_PRESETS[next]) return;
+  const nextPreset = getModePreset(next);
+  const kept = sessionDraft.memberIds.slice(0, nextPreset.playerCount);
+  sessionDraft = createDefaultSessionDraft(next);
+  sessionDraft.memberIds = kept;
+
+  form.querySelectorAll("[data-session-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.sessionMode === next);
+  });
+  const startingPoints = form.querySelector("[data-session-field='startingPoints']");
+  if (startingPoints) startingPoints.value = sessionDraft.startingPoints;
+  const chipValue = form.querySelector("[data-session-field='chipValue']");
+  if (chipValue) chipValue.value = sessionDraft.chipValue;
+  const date = form.querySelector("[data-session-field='sessionDate']");
+  if (date) date.value = sessionDraft.sessionDate;
+  const rate = form.querySelector("[data-session-field='rateLabel']");
+  if (rate) rate.value = sessionDraft.rateLabel;
+  const tobi = form.querySelector("[data-session-field='tobiEnabled']");
+  if (tobi) tobi.checked = sessionDraft.tobiEnabled;
+
+  const umaGrid = form.querySelector(".uma-grid");
+  if (umaGrid) {
+    umaGrid.innerHTML = sessionDraft.defaultUma.map((value, index) => `<label>${index + 1}位<input type="number" step="0.1" data-session-uma-index="${index}" value="${value}"></label>`).join("");
+    umaGrid.querySelectorAll("[data-session-uma-index]").forEach((input) => input.addEventListener("input", () => {
+      sessionDraft.defaultUma[Number(input.dataset.sessionUmaIndex)] = num(input.value);
+    }));
+  }
+  updateCreateMemberSelectionV47(form);
+  syncCreateRateBlockV47(form);
+  clearCreateSessionMessageV47();
+}
+
+function mountInlineCreateUpdatesV47() {
+  const form = document.getElementById("createSessionForm");
+  if (!form || form.dataset.v47InlineUpdates === "1") return;
+  form.dataset.v47InlineUpdates = "1";
+
+  form.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-session-mode]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    updateCreateModeInlineV47(form, button.dataset.sessionMode);
+  }, true);
+
+  form.addEventListener("change", (event) => {
+    const member = event.target.closest("[data-session-member-id]");
+    if (member) {
+      event.stopImmediatePropagation();
+      const id = member.dataset.sessionMemberId;
+      const limit = getModePreset(sessionDraft.gameMode).playerCount;
+      if (member.checked) {
+        if (sessionDraft.memberIds.length >= limit) {
+          member.checked = false;
+          alert(`${limit}人まで選択できます。`);
+          return;
+        }
+        if (!sessionDraft.memberIds.includes(id)) sessionDraft.memberIds.push(id);
+      } else {
+        sessionDraft.memberIds = sessionDraft.memberIds.filter((value) => value !== id);
+      }
+      updateCreateMemberSelectionV47(form);
+      clearCreateSessionMessageV47();
+      return;
+    }
+
+    const field = event.target.closest("[data-session-field='rateLabel']");
+    if (field) {
+      event.stopImmediatePropagation();
+      sessionDraft.rateLabel = field.value;
+      const preset = getRatePreset(field.value);
+      if (preset?.multiplier !== null) sessionDraft.rateMultiplier = preset.multiplier;
+      syncCreateRateBlockV47(form);
+      clearCreateSessionMessageV47();
+    }
+  }, true);
+}
+
+const renderCreateSessionViewBeforeV47 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  renderCreateSessionViewBeforeV47();
+  mountInlineCreateUpdatesV47();
 };
