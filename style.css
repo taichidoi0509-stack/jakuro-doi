@@ -1305,3 +1305,17 @@ button.history-calendar-cell { cursor: pointer; }
 
 .auto-rank-output { display:flex; align-items:center; min-height:42px; padding:0 12px; border:1px solid var(--line, #d7dfd8); border-radius:10px; background:#f3f7f4; color:#174c34; font-weight:800; font-size:0.92rem; }
 .auto-rank-output.error { background:#fff1f1; color:#a62c2c; border-color:#e7aaaa; }
+
+
+/* v49: 自動チップ・トビ案内 */
+.auto-tobi-panel { margin: 12px 0; padding: 14px; border: 1px solid rgba(177, 45, 45, .28); background: rgba(177, 45, 45, .06); border-radius: 14px; }
+.auto-tobi-title { margin: 0 0 4px; font-weight: 800; color: #a12b2b; }
+.auto-tobi-card { margin-top: 10px; padding: 12px; background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 12px; }
+.auto-tobi-card strong, .auto-tobi-card small { display: block; }
+.auto-tobi-card small { margin-top: 3px; color: var(--muted, #667085); }
+.tobi-recipient-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 10px; }
+.tobi-recipient-choice { display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 8px 10px; border: 1px solid rgba(0,0,0,.1); border-radius: 10px; font-size: .9rem; }
+.tobi-recipient-choice input { width: 18px; height: 18px; }
+.auto-tobi-status { margin: 10px 0 0; font-weight: 700; color: #a12b2b; }
+.auto-tobi-status.ready { color: #18744b; }
+@media (max-width: 360px) { .tobi-recipient-grid { grid-template-columns: 1fr; } }
