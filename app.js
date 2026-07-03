@@ -1556,13 +1556,30 @@ function getDraftPointBalance() {
   const expected = num(activeMatchSession.starting_points) * activeMatchMembers.length, entered = activeMatchMembers.filter((m) => hasEnteredFinalPoints(m.member_id)), total = entered.reduce((s,m) => s + Number(hanchanDraft.results[m.member_id].finalPoints), 0), complete = entered.length === activeMatchMembers.length;
   return { expected, total, enteredCount: entered.length, difference: complete ? total - expected : null, complete };
 }
-function applyAutoFinalPoints() {
+function applyAutoFinalPoints(options = {}) {
   if (!hanchanDraft || !activeMatchSession) return;
-  activeMatchMembers.forEach((m) => { const r = hanchanDraft.results[m.member_id]; if (r.pointMode === "auto") { r.finalPoints = ""; r.pointMode = "manual"; } });
-  const entered = activeMatchMembers.filter((m) => hasEnteredFinalPoints(m.member_id)); if (entered.length !== activeMatchMembers.length - 1) return;
-  const target = activeMatchMembers.find((m) => !hasEnteredFinalPoints(m.member_id)); if (!target) return;
-  const expected = num(activeMatchSession.starting_points) * activeMatchMembers.length, used = entered.reduce((s,m) => s + Number(hanchanDraft.results[m.member_id].finalPoints), 0);
-  hanchanDraft.results[target.member_id].finalPoints = expected - used; hanchanDraft.results[target.member_id].pointMode = "auto";
+  // 編集中に値をいったん空にした場合は、自動値を即時に差し戻さない。
+  // これにより全桁消去してから打ち直しても入力欄が奪われない。
+  if (options.suppressAutoForMemberId) return;
+
+  activeMatchMembers.forEach((m) => {
+    const r = hanchanDraft.results[m.member_id];
+    if (r.pointMode === "auto") {
+      r.finalPoints = "";
+      r.pointMode = "manual";
+    }
+  });
+
+  const entered = activeMatchMembers.filter((m) => hasEnteredFinalPoints(m.member_id));
+  if (entered.length !== activeMatchMembers.length - 1) return;
+
+  const target = activeMatchMembers.find((m) => !hasEnteredFinalPoints(m.member_id));
+  if (!target) return;
+
+  const expected = num(activeMatchSession.starting_points) * activeMatchMembers.length;
+  const used = entered.reduce((sum, member) => sum + Number(hanchanDraft.results[member.member_id].finalPoints), 0);
+  hanchanDraft.results[target.member_id].finalPoints = expected - used;
+  hanchanDraft.results[target.member_id].pointMode = "auto";
 }
 function getTobiMembersFromDraft() {
   if (!hanchanDraft || !activeMatchSession?.tobi_enabled) return [];
@@ -1593,6 +1610,39 @@ function applyAutoTobiTransfers() {
   });
   hanchanDraft.tobiTransfers = nextTransfers;
 }
+function renderTobiTransferRows() {
+  return hanchanDraft.tobiTransfers.map((t,i) => `<div class="tobi-transfer-row"><label>飛ばされた人<select data-tobi-index="${i}" data-tobi-field="fromMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.fromMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>飛ばした人<select data-tobi-index="${i}" data-tobi-field="toMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.toMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>移動量<input type="number" min="0.1" step="0.1" value="${t.points}" data-tobi-index="${i}" data-tobi-field="points"></label><button type="button" class="remove-transfer-button" data-remove-tobi-index="${i}">削除</button></div>`).join("");
+}
+
+function renderAutoTobiPanelMarkup() {
+  const tobiMembers = getTobiMembersFromDraft();
+  if (!tobiMembers.length) return "";
+  return `<div class="auto-tobi-panel"><p class="auto-tobi-title">トビ発生</p><p class="game-section-note">最終持ち点がマイナスのため、飛ばし点の受取先を選択してください。1人なら10、2人なら5ずつ自動配分します。</p>${tobiMembers.map((fromMember) => {
+    const recipients = hanchanDraft.tobiRecipientsByFrom?.[fromMember.member_id] || [];
+    const candidates = activeMatchMembers.filter((member) => member.member_id !== fromMember.member_id);
+    const recipientCount = recipients.length;
+    return `<article class="auto-tobi-card"><strong>${escapeHtml(getMemberName(fromMember.member_id))} がトビ</strong><small>受取先を1人または2人選択</small><div class="tobi-recipient-grid">${candidates.map((member) => `<label class="tobi-recipient-choice"><input type="checkbox" data-auto-tobi-from-member-id="${fromMember.member_id}" value="${member.member_id}" ${recipients.includes(member.member_id) ? "checked" : ""} ${recipientCount >= 2 && !recipients.includes(member.member_id) ? "disabled" : ""}><span>${escapeHtml(getMemberName(member.member_id))}</span></label>`).join("")}</div><p class="auto-tobi-status ${recipientCount === 1 || recipientCount === 2 ? "ready" : ""}">${recipientCount === 1 ? "10を1人へ配分" : recipientCount === 2 ? "5ずつを2人へ配分" : "受取先を選択してください"}</p></article>`;
+  }).join("")}</div>`;
+}
+
+function bindAutoTobiRecipientEvents(root = document) {
+  root.querySelectorAll("[data-auto-tobi-from-member-id]").forEach((input) => input.addEventListener("change", () => {
+    const fromMemberId = input.dataset.autoTobiFromMemberId;
+    const current = new Set(hanchanDraft.tobiRecipientsByFrom?.[fromMemberId] || []);
+    if (input.checked) {
+      if (current.size >= 2) { input.checked = false; return; }
+      current.add(input.value);
+    } else {
+      current.delete(input.value);
+    }
+    hanchanDraft.tobiRecipientsByFrom = { ...(hanchanDraft.tobiRecipientsByFrom || {}), [fromMemberId]: [...current] };
+    applyAutoTobiTransfers();
+    refreshAutoTobiPanel(true);
+    refreshHanchanPreview();
+    refreshAllHanchanCards();
+  }));
+}
+
 function getAutoRanksFromFinalPoints() {
   if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
   if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
@@ -1702,44 +1752,74 @@ function renderHanchanEditor() {
       : `<label>順位<output class="auto-rank-output ${!rankState.valid && rankState.complete ? "error" : ""}" data-hanchan-rank-member-id="${m.member_id}">${rankLabel}</output></label>`;
     return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
   }).join("");
-  const transfers = hanchanDraft.tobiTransfers.map((t,i) => `<div class="tobi-transfer-row"><label>飛ばされた人<select data-tobi-index="${i}" data-tobi-field="fromMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.fromMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>飛ばした人<select data-tobi-index="${i}" data-tobi-field="toMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${t.toMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>移動量<input type="number" min="0.1" step="0.1" value="${t.points}" data-tobi-index="${i}" data-tobi-field="points"></label><button type="button" class="remove-transfer-button" data-remove-tobi-index="${i}">削除</button></div>`).join("");
+  const transfers = renderTobiTransferRows();
   const tobiMembers = getTobiMembersFromDraft();
-  const autoTobiPanel = tobiMembers.length ? `<div class="auto-tobi-panel"><p class="auto-tobi-title">トビ発生</p><p class="game-section-note">最終持ち点がマイナスのため、飛ばし点の受取先を選択してください。1人なら10、2人なら5ずつ自動配分します。</p>${tobiMembers.map((fromMember) => {
-    const recipients = hanchanDraft.tobiRecipientsByFrom?.[fromMember.member_id] || [];
-    const candidates = activeMatchMembers.filter((member) => member.member_id !== fromMember.member_id);
-    const recipientCount = recipients.length;
-    return `<article class="auto-tobi-card"><strong>${escapeHtml(getMemberName(fromMember.member_id))} がトビ</strong><small>受取先を1人または2人選択</small><div class="tobi-recipient-grid">${candidates.map((member) => `<label class="tobi-recipient-choice"><input type="checkbox" data-auto-tobi-from-member-id="${fromMember.member_id}" value="${member.member_id}" ${recipients.includes(member.member_id) ? "checked" : ""} ${recipientCount >= 2 && !recipients.includes(member.member_id) ? "disabled" : ""}><span>${escapeHtml(getMemberName(member.member_id))}</span></label>`).join("")}</div><p class="auto-tobi-status ${recipientCount === 1 || recipientCount === 2 ? "ready" : ""}">${recipientCount === 1 ? "10を1人へ配分" : recipientCount === 2 ? "5ずつを2人へ配分" : "受取先を選択してください"}</p></article>`;
-  }).join("")}</div>` : "";
+  const autoTobiPanel = renderAutoTobiPanelMarkup();
   const yakumans = hanchanDraft.yakumanRecords.map((r,i) => `<article class="yakuman-entry-card"><div class="yakuman-entry-heading"><strong>役満 ${i+1}</strong><button type="button" class="remove-transfer-button" data-remove-yakuman-index="${i}">削除</button></div><div class="yakuman-entry-grid"><label>役満<select data-yakuman-index="${i}" data-yakuman-field="yakumanName">${YAKUMAN_OPTIONS.map((name) => `<option value="${name}" ${r.yakumanName === name ? "selected" : ""}>${name}</option>`).join("")}</select></label>${r.yakumanName === "その他" ? `<label>役満名<input type="text" maxlength="60" value="${escapeHtml(r.customName)}" data-yakuman-index="${i}" data-yakuman-field="customName"></label>` : ""}<label>あがった人<select data-yakuman-index="${i}" data-yakuman-field="winnerMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.winnerMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>あがり方<select data-yakuman-index="${i}" data-yakuman-field="winType"><option value="tsumo" ${r.winType === "tsumo" ? "selected" : ""}>ツモ</option><option value="ron" ${r.winType === "ron" ? "selected" : ""}>ロン</option></select></label>${r.winType === "ron" ? `<label>放銃者<select data-yakuman-index="${i}" data-yakuman-field="houjuuMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.houjuuMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label>` : ""}</div></article>`).join("");
   const balanceText = balance.complete ? balance.difference === 0 ? `最終持ち点合計：${balance.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${balance.total.toLocaleString()}点 / 差額 ${balance.difference > 0 ? "+" : ""}${balance.difference.toLocaleString()}点` : `最終持ち点入力：${balance.enteredCount} / ${activeMatchMembers.length}人`;
-  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div></section><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">順位は最終持ち点の高い順に自動で確定します。同点は同着として、該当順位のウマを均等に分配します。例：2・3位同点なら、2位ウマと3位ウマの平均を両者へ配分します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div>${autoTobiPanel}<p class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></section><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
+  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div></section><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">順位は最終持ち点の高い順に自動で確定します。同点は同着として、該当順位のウマを均等に分配します。例：2・3位同点なら、2位ウマと3位ウマの平均を両者へ配分します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></section><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
 }
+function bindTobiTransferEvents(root = document) {
+  root.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => {
+    const transfer = hanchanDraft.tobiTransfers[Number(input.dataset.tobiIndex)];
+    const field = input.dataset.tobiField;
+    transfer[field] = field === "points" ? num(input.value) : input.value;
+    refreshHanchanPreview();
+    refreshAllHanchanCards();
+  }));
+  root.querySelectorAll("[data-remove-tobi-index]").forEach((button) => button.addEventListener("click", () => {
+    hanchanDraft.tobiTransfers.splice(Number(button.dataset.removeTobiIndex), 1);
+    refreshAutoTobiPanel(true);
+    refreshHanchanPreview();
+    refreshAllHanchanCards();
+  }));
+}
+
 function bindHanchanEditorEvents() {
   const form = document.getElementById("hanchanForm"); if (!form || !hanchanDraft) return;
   document.querySelectorAll("[data-hanchan-uma-index]").forEach((input) => input.addEventListener("input", () => { hanchanDraft.uma[Number(input.dataset.hanchanUmaIndex)] = num(input.value); refreshHanchanPreview(); refreshAllHanchanCards(); }));
-  document.querySelectorAll("[data-hanchan-result-field]").forEach((input) => input.addEventListener("input", () => { const id = input.dataset.hanchanResultMemberId; hanchanDraft.results[id].finalPoints = input.value; hanchanDraft.results[id].pointMode = "manual"; applySignedInputClass(input); applyAutoFinalPoints(); applyAutoTobiTransfers(); syncAutoPointInputs(); syncAutoRanks(); refreshAutoRankOutputs(); refreshHanchanPreview(); refreshAllHanchanCards(); refreshPointBalance(); refreshAutoTobiPanel(); }));
+  document.querySelectorAll("[data-hanchan-result-field]").forEach((input) => input.addEventListener("input", () => {
+    const id = input.dataset.hanchanResultMemberId;
+    hanchanDraft.results[id].finalPoints = input.value;
+    hanchanDraft.results[id].pointMode = "manual";
+    applySignedInputClass(input);
+    applyAutoFinalPoints({ suppressAutoForMemberId: input.value === "" ? id : "" });
+    applyAutoTobiTransfers();
+    syncAutoPointInputs();
+    syncAutoRanks();
+    refreshAutoRankOutputs();
+    refreshHanchanPreview();
+    refreshAllHanchanCards();
+    refreshPointBalance();
+    refreshAutoTobiPanel(true);
+  }));
   document.getElementById("enableManualRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "manual"; const automatic = getAutoRanksFromFinalPoints(); if (automatic.complete && automatic.valid) activeMatchMembers.forEach((member) => { hanchanDraft.results[member.member_id].rank = automatic.ranks[member.member_id]; }); renderActiveSessionView(); });
   document.getElementById("enableAutoRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "auto"; syncAutoRanks(); renderActiveSessionView(); });
   document.querySelectorAll("[data-hanchan-manual-rank-member-id]").forEach((input) => input.addEventListener("change", () => { const id = input.dataset.hanchanManualRankMemberId; hanchanDraft.results[id].rank = Number(input.value); refreshHanchanPreview(); refreshAllHanchanCards(); }));
-  document.querySelectorAll("[data-auto-tobi-from-member-id]").forEach((input) => input.addEventListener("change", () => {
-    const fromMemberId = input.dataset.autoTobiFromMemberId;
-    const current = new Set(hanchanDraft.tobiRecipientsByFrom?.[fromMemberId] || []);
-    if (input.checked) {
-      if (current.size >= 2) { input.checked = false; return; }
-      current.add(input.value);
-    } else { current.delete(input.value); }
-    hanchanDraft.tobiRecipientsByFrom = { ...(hanchanDraft.tobiRecipientsByFrom || {}), [fromMemberId]: [...current] };
-    applyAutoTobiTransfers();
-    renderActiveSessionView();
-  }));
-  document.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => { const t = hanchanDraft.tobiTransfers[Number(input.dataset.tobiIndex)], field = input.dataset.tobiField; t[field] = field === "points" ? num(input.value) : input.value; refreshHanchanPreview(); refreshAllHanchanCards(); }));
-  document.getElementById("addTobiTenButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 10 }); renderActiveSessionView(); }); document.getElementById("addTobiFiveButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 5 }); renderActiveSessionView(); });
-  document.querySelectorAll("[data-remove-tobi-index]").forEach((button) => button.addEventListener("click", () => { hanchanDraft.tobiTransfers.splice(Number(button.dataset.removeTobiIndex), 1); renderActiveSessionView(); }));
+  bindAutoTobiRecipientEvents(form);
+  bindTobiTransferEvents(form);
+  document.getElementById("addTobiTenButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 10 }); refreshAutoTobiPanel(true); });
+  document.getElementById("addTobiFiveButton")?.addEventListener("click", () => { hanchanDraft.tobiTransfers.push({ fromMemberId: "", toMemberId: "", points: 5 }); refreshAutoTobiPanel(true); });
   document.getElementById("addYakumanButton")?.addEventListener("click", () => { hanchanDraft.yakumanRecords.push(createEmptyYakumanRecord()); renderActiveSessionView(); }); document.querySelectorAll("[data-remove-yakuman-index]").forEach((button) => button.addEventListener("click", () => { hanchanDraft.yakumanRecords.splice(Number(button.dataset.removeYakumanIndex), 1); renderActiveSessionView(); }));
   document.querySelectorAll("[data-yakuman-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => { const r = hanchanDraft.yakumanRecords[Number(input.dataset.yakumanIndex)], field = input.dataset.yakumanField; r[field] = input.value; if (field === "winType" && input.value === "tsumo") r.houjuuMemberId = ""; if (field === "yakumanName" || field === "winType") renderActiveSessionView(); }));
   document.querySelector("[data-hanchan-note]")?.addEventListener("input", (e) => hanchanDraft.notes = e.target.value); form.addEventListener("submit", addMatchHanchan); refreshHanchanPreview(); refreshPointBalance();
 }
-function syncAutoPointInputs() { activeMatchMembers.forEach((m) => { const r = hanchanDraft.results[m.member_id], input = document.querySelector(`[data-hanchan-point-input-id="${m.member_id}"]`), badge = document.querySelector(`[data-hanchan-point-mode-id="${m.member_id}"]`); if (input) { input.value = r.finalPoints; applySignedInputClass(input, r.finalPoints); } if (badge) { badge.textContent = r.pointMode === "auto" ? "自動計算" : "手入力"; badge.classList.toggle("auto", r.pointMode === "auto"); } }); }
+function syncAutoPointInputs() {
+  const focused = document.activeElement;
+  activeMatchMembers.forEach((m) => {
+    const r = hanchanDraft.results[m.member_id];
+    const input = document.querySelector(`[data-hanchan-point-input-id="${m.member_id}"]`);
+    const badge = document.querySelector(`[data-hanchan-point-mode-id="${m.member_id}"]`);
+    if (input && input !== focused) {
+      input.value = r.finalPoints;
+      applySignedInputClass(input, r.finalPoints);
+    }
+    if (badge) {
+      badge.textContent = r.pointMode === "auto" ? "自動計算" : "手入力";
+      badge.classList.toggle("auto", r.pointMode === "auto");
+    }
+  });
+}
 function refreshAutoRankOutputs() {
   const state = getDraftRankState();
   activeMatchMembers.forEach((member) => {
@@ -1749,11 +1829,31 @@ function refreshAutoRankOutputs() {
     output.classList.toggle("error", Boolean(state.complete && !state.valid));
   });
 }
-function refreshAutoTobiPanel() {
+function refreshAutoTobiPanel(force = false) {
   const nextSignature = getTobiMembersFromDraft().map((member) => member.member_id).sort().join("|");
-  if (nextSignature === lastAutoTobiSignature) return;
+  const host = document.getElementById("autoTobiPanelHost");
+  const note = document.getElementById("autoTobiNote");
+  const transferList = document.getElementById("tobiTransferList");
+  if (!host || !note || !transferList) {
+    lastAutoTobiSignature = nextSignature;
+    return;
+  }
+
+  /*
+   * 最終持ち点の入力ごとに飛ばし点領域を作り直すと、iPhone PWAでは
+   * フォーカス／レイアウト再計算により画面が上部へ戻ることがある。
+   * トビ対象が変わらない限り、通常の点数入力ではこの領域に一切触れない。
+   */
+  if (!force && nextSignature === lastAutoTobiSignature) return;
+
+  host.innerHTML = renderAutoTobiPanelMarkup();
+  note.textContent = nextSignature
+    ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。"
+    : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。";
+  transferList.innerHTML = renderTobiTransferRows() || `<p class="game-section-note">飛ばし点なし</p>`;
+  bindAutoTobiRecipientEvents(host);
+  bindTobiTransferEvents(transferList);
   lastAutoTobiSignature = nextSignature;
-  renderActiveSessionView();
 }
 function refreshPointBalance() { const el = document.getElementById("hanchanPointBalance"); if (!el) return; const b = getDraftPointBalance(); el.textContent = b.complete ? b.difference === 0 ? `最終持ち点合計：${b.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${b.total.toLocaleString()}点 / 差額 ${b.difference > 0 ? "+" : ""}${b.difference.toLocaleString()}点` : `最終持ち点入力：${b.enteredCount} / ${activeMatchMembers.length}人`; el.classList.toggle("error", b.complete && b.difference !== 0); }
 function refreshAllHanchanCards() { activeMatchMembers.forEach((m) => refreshHanchanMemberCard(m.member_id)); }
