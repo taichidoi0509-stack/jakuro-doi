@@ -1559,12 +1559,14 @@ function applyAutoFinalPoints() {
   hanchanDraft.results[target.member_id].finalPoints = expected - used; hanchanDraft.results[target.member_id].pointMode = "auto";
 }
 function getAutoRanksFromFinalPoints() {
-  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
-  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
+  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
 
   const ordered = [...activeMatchMembers].sort((a, b) => Number(hanchanDraft.results[b.member_id].finalPoints) - Number(hanchanDraft.results[a.member_id].finalPoints));
   const ranks = {};
+  const displayRanks = {};
   const umaByMember = {};
+  const tieGroups = [];
   let cursor = 0;
   let hasTie = false;
 
@@ -1573,22 +1575,31 @@ function getAutoRanksFromFinalPoints() {
     let end = cursor + 1;
     while (end < ordered.length && Number(hanchanDraft.results[ordered[end].member_id].finalPoints) === points) end += 1;
     const group = ordered.slice(cursor, end);
-    const rank = cursor + 1;
+    const displayRank = cursor + 1;
     const splitUma = roundOne(hanchanDraft.uma.slice(cursor, end).reduce((sum, value) => sum + num(value), 0) / group.length);
-    if (group.length > 1) hasTie = true;
-    group.forEach((member) => {
-      ranks[member.member_id] = rank;
+    const memberIds = group.map((member) => member.member_id);
+
+    if (group.length > 1) {
+      hasTie = true;
+      tieGroups.push({ startIndex: cursor, endIndex: end, displayRank, memberIds, splitUma });
+    }
+
+    group.forEach((member, offset) => {
+      // DB側は順位の重複を許可しないため、保存値は連番にする。
+      // 画面表示とウマ計算は displayRanks / umaByMember で同着として扱う。
+      ranks[member.member_id] = cursor + offset + 1;
+      displayRanks[member.member_id] = displayRank;
       umaByMember[member.member_id] = splitUma;
     });
     cursor = end;
   }
 
-  return { complete: true, hasTie, valid: true, ranks, umaByMember };
+  return { complete: true, hasTie, valid: true, ranks, displayRanks, umaByMember, tieGroups };
 }
 
 function getManualRanksFromDraft() {
-  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
-  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, umaByMember: {} };
+  if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
+  if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
   const ranks = {};
   const seen = new Set();
   const count = activeMatchMembers.length;
@@ -1649,7 +1660,7 @@ function renderHanchanEditor() {
         : hanchanDraft.rankMode === "manual"
           ? `${rankState.ranks[m.member_id]}位（手入力）`
           : rankState.hasTie
-            ? `${rankState.ranks[m.member_id]}位同着（ウマを均等分配）`
+            ? `${rankState.displayRanks?.[m.member_id] || rankState.ranks[m.member_id]}位同着（ウマを均等分配）`
             : `${rankState.ranks[m.member_id]}位（自動）`;
     const rankControl = showManualRankControl
       ? `<label>順位<select data-hanchan-manual-rank-member-id="${m.member_id}">${Array.from({ length: activeMatchMembers.length }, (_, index) => `<option value="${index + 1}" ${Number(r.rank) === index + 1 ? "selected" : ""}>${index + 1}位</option>`).join("")}</select></label>`
@@ -1681,7 +1692,7 @@ function refreshAutoRankOutputs() {
   activeMatchMembers.forEach((member) => {
     const output = document.querySelector(`[data-hanchan-rank-member-id="${member.member_id}"]`);
     if (!output) return;
-    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.hasTie ? `${state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
+    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.hasTie ? `${state.displayRanks?.[member.member_id] || state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
     output.classList.toggle("error", Boolean(state.complete && !state.valid));
   });
 }
@@ -1705,14 +1716,10 @@ function refreshHanchanPreview() {
 function getEffectiveUmaForSave(rankState) {
   const effective = hanchanDraft.uma.map(num);
   if (!rankState?.valid || hanchanDraft.rankMode === "manual") return effective;
-  const groups = new Map();
-  activeMatchMembers.forEach((member) => {
-    const rank = rankState.ranks[member.member_id];
-    if (!groups.has(rank)) groups.set(rank, []);
-    groups.get(rank).push(member.member_id);
-  });
-  groups.forEach((memberIds, rank) => {
-    if (memberIds.length > 1) effective[rank - 1] = num(rankState.umaByMember[memberIds[0]]);
+  (rankState.tieGroups || []).forEach((group) => {
+    for (let index = group.startIndex; index < group.endIndex; index += 1) {
+      effective[index] = num(group.splitUma);
+    }
   });
   return effective;
 }
