@@ -1402,10 +1402,10 @@ function renderActiveSessionView() {
   `).join("");
 
   const routeRows = routes.length
-    ? routes.map((route, index) => `
+    ? routes.map((route) => `
       <div class="payment-route-row payment-route-debt-row">
         <span>${escapeHtml(route.from)} <b>→</b> ${escapeHtml(route.to)}</span>
-        <div><strong>${formatPtPlain(route.amount)}</strong>${session.status === "settled" ? `<button type="button" class="route-debt-button" data-register-route-index="${index}">借ptへ登録</button>` : ""}</div>
+        <div><strong>${formatPtPlain(route.amount)}</strong>${session.status === "settled" ? `<small class="route-debt-auto-label">借ptへ自動登録</small>` : ""}</div>
       </div>
     `).join("")
     : `<p class="game-section-note">送金は不要です。</p>`;
@@ -1897,8 +1897,52 @@ function refreshVenueDraftBalance() { const el = document.getElementById("venueB
 async function saveVenueCosts(e) { e.preventDefault(); const message = document.getElementById("venueBalanceMessage"), submit = document.getElementById("saveVenueButton"), total = num(venueDraft.total), paid = getVenueDraftPrepaymentTotal(); if (!nearlyEqual(total, paid)) { message.textContent = "場代合計と先払い合計を一致させてください。"; message.classList.add("venue-error"); return; } submit.disabled = true; submit.textContent = "保存中..."; try { markLocalRealtimeWrite(); const { error } = await supabaseClient.rpc("set_match_session_venue_costs", { p_session_id: activeMatchSessionId, p_venue_fee_total: roundTo(total, 2), p_prepayments: activeMatchMembers.map((m) => ({ member_id: m.member_id, paid_molly: roundTo(num(venueDraft.prepayments[m.member_id]), 2) })) }); if (error) throw error; gameMessage = "場代と先払いを保存しました。"; showVenueEditor = false; await loadMatchSessions(); } catch (error) { message.textContent = error.message || "場代を保存できませんでした。"; } finally { submit.disabled = false; submit.textContent = "場代を保存"; } }
 
 async function settleMatchSession() {
-  if (!activeHanchans.length) return alert("半荘を1件以上登録してください。"); if (!hasAllChips()) return alert("終了時チップを全員分入力してください。"); if (!hasMatchingVenuePrepayments()) return alert("場代合計と先払い合計を一致させてください。"); if (!confirm("1日の精算を確定します。\n確定後も半荘・チップ・場代は編集できます。")) return;
-  try { markLocalRealtimeWrite(); const { error } = await supabaseClient.rpc("close_match_session", { p_session_id: activeMatchSessionId }); if (error) throw error; gameMessage = "1日の精算を確定しました。"; await loadMatchSessions(); } catch (error) { alert(error.message || "精算を確定できませんでした。"); }
+  if (!activeHanchans.length) return alert("半荘を1件以上登録してください。");
+  if (!hasAllChips()) return alert("終了時チップを全員分入力してください。");
+  if (!hasMatchingVenuePrepayments()) return alert("場代合計と先払い合計を一致させてください。");
+  if (!confirm("1日の精算を確定します。\n送金が必要な場合は、未精算の借ptとして自動登録されます。\n確定後も半荘・チップ・場代は編集できます。")) return;
+
+  const routes = getPaymentRoutes(getSessionTotals())
+    .filter((route) => num(route.amount) > 0.004)
+    .map((route) => ({
+      debtor_member_id: route.fromMemberId,
+      creditor_member_id: route.toMemberId,
+      amount_pt: roundTo(num(route.amount), 2)
+    }));
+
+  let sessionClosed = false;
+  try {
+    markLocalRealtimeWrite();
+    const { error } = await supabaseClient.rpc("close_match_session", { p_session_id: activeMatchSessionId });
+    if (error) throw error;
+    sessionClosed = true;
+
+    let autoDebtRegistered = false;
+    if (routes.length) {
+      const { data, error: debtError } = await supabaseClient.rpc("register_session_payment_routes_as_debts", {
+        p_session_id: activeMatchSessionId,
+        p_routes: routes,
+        p_memo: `${formatDate(activeMatchSession?.session_date || "")}の精算ルート（自動登録）`
+      });
+      if (debtError) throw debtError;
+      autoDebtRegistered = num(data?.route_count) > 0;
+      debtMessage = `${num(data?.route_count)}件の送金ルートを未精算借ptとして自動登録しました。`;
+    }
+
+    gameMessage = routes.length
+      ? (autoDebtRegistered ? "精算を確定し、送金ルートを借ptへ自動登録しました。送金後は精算タブで送金済みにしてください。" : "精算を確定しました。")
+      : "精算を確定しました。送金は不要です。";
+    await loadMatchSessions();
+  } catch (error) {
+    const message = error?.message || "精算を確定できませんでした。";
+    if (sessionClosed) {
+      gameMessage = "精算は確定しましたが、借ptの自動登録に失敗しました。精算画面から再登録してください。";
+      await loadMatchSessions();
+      alert(message);
+      return;
+    }
+    alert(message);
+  }
 }
 
 
@@ -2362,7 +2406,7 @@ function renderDebtPaymentForm(record) {
       <label>支払日<input name="paidDate" type="date" value="${todayInJapan()}" required></label>
     </div>
     <label>メモ（任意）<input name="memo" type="text" maxlength="300" placeholder="例：PayPayで送金"></label>
-    <div class="debt-form-actions"><button class="primary-button" type="submit">支払いを記録</button><button class="secondary-button" type="button" data-close-debt-payment="${record.id}">閉じる</button></div>
+    <div class="debt-form-actions"><button class="primary-button" type="submit">送金済みにする</button><button class="secondary-button" type="button" data-close-debt-payment="${record.id}">閉じる</button></div>
     <p class="debt-form-message"></p>
   </form>`;
 }
@@ -2395,7 +2439,7 @@ function renderDebtRecord(record) {
     </div>
     <div class="debt-amount-grid"><div><span>未精算</span><strong class="${open ? "" : "value-zero"}">${formatPtPlain(record.remaining_amount_pt)}</strong></div><div><span>元の額</span><strong>${formatPtPlain(record.original_amount_pt)}</strong></div></div>
     ${record.memo ? `<p class="debt-memo">${escapeHtml(record.memo)}</p>` : ""}
-    ${open ? `<div class="debt-record-actions"><button class="secondary-button" type="button" data-open-debt-payment="${record.id}">支払いを記録</button><button class="secondary-button" type="button" data-open-debt-reroute="${record.id}">横流し</button><button class="danger-outline-button" type="button" data-cancel-debt="${record.id}">取消</button></div>` : ""}
+    ${open ? `<div class="debt-record-actions"><button class="secondary-button" type="button" data-open-debt-payment="${record.id}">送金済みにする</button><button class="secondary-button" type="button" data-open-debt-reroute="${record.id}">横流し</button><button class="danger-outline-button" type="button" data-cancel-debt="${record.id}">取消</button></div>` : ""}
     ${debtOpenPaymentId === record.id ? renderDebtPaymentForm(record) : ""}
     ${debtOpenRerouteId === record.id ? renderDebtRerouteForm(record) : ""}
     ${eventRows ? `<details class="debt-event-details"><summary>履歴を確認（${events.length}件）</summary><ul>${eventRows}</ul></details>` : ""}
@@ -2484,10 +2528,10 @@ function bindDebtPageEvents() {
       const paidDate = String(fd.get("paidDate") || todayInJapan());
       const { error } = await supabaseClient.rpc("mark_debt_payment", { p_debt_id: record.id, p_amount_pt: amount, p_paid_at: `${paidDate}T12:00:00+09:00`, p_memo: String(fd.get("memo") || "") });
       if (error) throw error;
-      debtMessage = `${getMemberName(record.debtor_member_id)} → ${getMemberName(record.creditor_member_id)} の支払いを記録しました。`;
+      debtMessage = `${getMemberName(record.debtor_member_id)} → ${getMemberName(record.creditor_member_id)} の送金済みにするしました。`;
       debtOpenPaymentId = null;
       await loadDebtData();
-    } catch (error) { message.textContent = error.message || "支払いを記録できませんでした。"; }
+    } catch (error) { message.textContent = error.message || "送金済みにするできませんでした。"; }
     finally { submit.disabled = false; }
   }));
   document.querySelectorAll("[data-debt-reroute-form]").forEach((form) => {
@@ -2890,7 +2934,7 @@ function activityEventLabel(eventType) {
     chips_edited: "終了時チップを編集",
     venue_edited: "場代・先払いを編集",
     debt_created: "借ptを追加",
-    debt_paid: "借ptの支払いを記録",
+    debt_paid: "借ptの送金済みにする",
     debt_rerouted: "借ptを横流し",
     debt_cancelled: "借ptをゴミ箱へ移動",
     debt_restored: "借ptを復元",
@@ -3036,7 +3080,7 @@ function activityPayloadForRpc(name, args, result, before) {
     set_match_session_chips: "終了時チップを編集しました。",
     set_match_session_venue_costs: "場代・先払いを編集しました。",
     create_debt_record: "借ptを追加しました。",
-    mark_debt_payment: "借ptの支払いを記録しました。",
+    mark_debt_payment: "借ptの送金済みにするしました。",
     reroute_debt_record: "借ptを横流ししました。",
     cancel_debt_record: "借ptをゴミ箱へ移しました。",
     restore_cancelled_debt_record: "借ptをゴミ箱から復元しました。",
@@ -3275,14 +3319,14 @@ function injectSettlementDebtBatchAction() {
   box.className = "settlement-debt-batch-box";
 
   if (activeSettlementDebtBatch) {
-    box.innerHTML = `<div class="settlement-debt-batch-heading"><div><span class="settlement-debt-batch-badge">借pt登録済み</span><strong>送金ルートをまとめて借ptへ登録済みです</strong></div><span>${escapeHtml(formatBatchRegisteredAt(activeSettlementDebtBatch.created_at))}</span></div>
-      <p>${activeSettlementDebtBatch.route_count}件・合計 ${formatPtPlain(activeSettlementDebtBatch.total_amount_pt)} を未精算借ptとして保存しています。後から対局結果を編集しても、登録済みの借ptは自動変更されません。</p>
+    box.innerHTML = `<div class="settlement-debt-batch-heading"><div><span class="settlement-debt-batch-badge">借pt登録済み</span><strong>送金ルートは借ptへ自動登録済みです</strong></div><span>${escapeHtml(formatBatchRegisteredAt(activeSettlementDebtBatch.created_at))}</span></div>
+      <p>${activeSettlementDebtBatch.route_count}件・合計 ${formatPtPlain(activeSettlementDebtBatch.total_amount_pt)} を未精算借ptとして保存しています。送金が終わったら精算タブで「送金済みにする」を実行してください。後から対局結果を編集しても、登録済みの借ptは自動変更されません。</p>
       ${activeSettlementDebtBatch.memo ? `<small>メモ：${escapeHtml(activeSettlementDebtBatch.memo)}</small>` : ""}`;
   } else if (routes.length) {
     const total = roundTo(routes.reduce((sum, route) => sum + num(route.amount_pt), 0), 2);
-    box.innerHTML = `<div class="settlement-debt-batch-heading"><div><span class="settlement-debt-batch-badge pending">未登録</span><strong>送金ルートをまとめて借ptへ登録</strong></div><span>${routes.length}件</span></div>
-      <p>現在の送金ルート（合計 ${formatPtPlain(total)}）を、未精算の借ptとして一括保存します。登録後の借ptは借ptタブで支払い・横流しを管理します。</p>
-      <button id="openSettlementDebtBatchButton" class="primary-button settlement-debt-batch-button" type="button">送金ルートをまとめて借ptへ登録</button>`;
+    box.innerHTML = `<div class="settlement-debt-batch-heading"><div><span class="settlement-debt-batch-badge pending">未登録</span><strong>送金ルートを借ptへ登録</strong></div><span>${routes.length}件</span></div>
+      <p>この対局は旧記録のため、送金ルートが未登録です。未精算借ptとして登録すると、精算タブで送金済み・横流しを管理できます。</p>
+      <button id="openSettlementDebtBatchButton" class="primary-button settlement-debt-batch-button" type="button">送金ルートを借ptへ登録</button>`;
   } else {
     box.innerHTML = `<div class="settlement-debt-batch-heading"><div><span class="settlement-debt-batch-badge neutral">送金なし</span><strong>借ptへの一括登録は不要です</strong></div></div><p>現在の精算結果では、未精算として登録する送金ルートがありません。</p>`;
   }
@@ -3310,7 +3354,7 @@ async function openSettlementDebtBatchModal() {
   }
   const total = roundTo(routes.reduce((sum, route) => sum + num(route.amount_pt), 0), 2);
   closeSettlementDebtBatchModal();
-  document.body.insertAdjacentHTML("beforeend", `<div class="settlement-debt-batch-modal-overlay"><section class="debt-modal settlement-debt-batch-modal" role="dialog" aria-modal="true" aria-labelledby="settlementDebtBatchTitle"><button type="button" class="debt-modal-close" aria-label="閉じる">×</button><p class="eyebrow">BATCH REGISTER</p><h2 id="settlementDebtBatchTitle">送金ルートをまとめて借ptへ登録</h2><p>以下の送金ルートを、現在の金額のまま未精算借ptとして保存します。登録後に対局結果や場代を編集しても、この借ptは自動変更されません。</p><div class="settlement-debt-batch-route-list">${routes.map((route) => `<div><span>${escapeHtml(route.from)} <b>→</b> ${escapeHtml(route.to)}</span><strong>${formatPtPlain(route.amount_pt)}</strong></div>`).join("")}</div><div class="settlement-debt-batch-total"><span>登録合計</span><strong>${formatPtPlain(total)}</strong></div><form id="settlementDebtBatchForm" class="debt-create-form"><label>メモ（任意）<input name="memo" type="text" maxlength="300" value="${escapeHtml(`${formatDate(activeMatchSession.session_date)}の精算ルート`)}"></label><div class="debt-form-actions"><button class="primary-button" type="submit">${routes.length}件を借ptへ登録</button><button class="secondary-button" type="button" id="cancelSettlementDebtBatchButton">閉じる</button></div><p class="debt-form-message"></p></form></section></div>`);
+  document.body.insertAdjacentHTML("beforeend", `<div class="settlement-debt-batch-modal-overlay"><section class="debt-modal settlement-debt-batch-modal" role="dialog" aria-modal="true" aria-labelledby="settlementDebtBatchTitle"><button type="button" class="debt-modal-close" aria-label="閉じる">×</button><p class="eyebrow">BATCH REGISTER</p><h2 id="settlementDebtBatchTitle">送金ルートを借ptへ登録</h2><p>以下の送金ルートを、現在の金額のまま未精算借ptとして保存します。登録後に対局結果や場代を編集しても、この借ptは自動変更されません。</p><div class="settlement-debt-batch-route-list">${routes.map((route) => `<div><span>${escapeHtml(route.from)} <b>→</b> ${escapeHtml(route.to)}</span><strong>${formatPtPlain(route.amount_pt)}</strong></div>`).join("")}</div><div class="settlement-debt-batch-total"><span>登録合計</span><strong>${formatPtPlain(total)}</strong></div><form id="settlementDebtBatchForm" class="debt-create-form"><label>メモ（任意）<input name="memo" type="text" maxlength="300" value="${escapeHtml(`${formatDate(activeMatchSession.session_date)}の精算ルート`)}"></label><div class="debt-form-actions"><button class="primary-button" type="submit">${routes.length}件を借ptへ登録</button><button class="secondary-button" type="button" id="cancelSettlementDebtBatchButton">閉じる</button></div><p class="debt-form-message"></p></form></section></div>`);
 
   const overlay = document.querySelector(".settlement-debt-batch-modal-overlay");
   const form = document.getElementById("settlementDebtBatchForm");
@@ -3417,7 +3461,7 @@ activityPayloadForRpc = function(name, args, result, before) {
       eventType: "debt_created",
       entityType: "session",
       entityId: args?.p_session_id || activeMatchSession?.id || null,
-      summary: `${routeCount}件の送金ルートをまとめて借ptへ登録しました。`,
+      summary: `${routeCount}件の送金ルートを借ptへ登録しました。`,
       details: {
         before: null,
         after: {
