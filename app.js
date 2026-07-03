@@ -1615,13 +1615,11 @@ function renderTobiTransferRows() {
 }
 
 function renderAutoTobiPanelMarkup() {
-  const tobiMembers = getTobiMembersFromDraft();
-  if (!tobiMembers.length) return "";
-  return `<div class="auto-tobi-panel"><p class="auto-tobi-title">トビ発生</p><p class="game-section-note">最終持ち点がマイナスのため、飛ばし点の受取先を選択してください。1人なら10、2人なら5ずつ自動配分します。</p>${tobiMembers.map((fromMember) => {
-    const recipients = hanchanDraft.tobiRecipientsByFrom?.[fromMember.member_id] || [];
+  // 入力中にDOMを作り直さないため、全参加者分の受取先パネルを最初から保持する。
+  // 実際にトビした人だけを表示・有効化する。
+  return `<div id="autoTobiPanel" class="auto-tobi-panel is-idle" aria-live="polite"><p class="auto-tobi-title" data-auto-tobi-title>トビ発生</p><p class="game-section-note" data-auto-tobi-help>最終持ち点がマイナスになると、飛ばし点の受取先を選べます。</p>${activeMatchMembers.map((fromMember) => {
     const candidates = activeMatchMembers.filter((member) => member.member_id !== fromMember.member_id);
-    const recipientCount = recipients.length;
-    return `<article class="auto-tobi-card"><strong>${escapeHtml(getMemberName(fromMember.member_id))} がトビ</strong><small>受取先を1人または2人選択</small><div class="tobi-recipient-grid">${candidates.map((member) => `<label class="tobi-recipient-choice"><input type="checkbox" data-auto-tobi-from-member-id="${fromMember.member_id}" value="${member.member_id}" ${recipients.includes(member.member_id) ? "checked" : ""} ${recipientCount >= 2 && !recipients.includes(member.member_id) ? "disabled" : ""}><span>${escapeHtml(getMemberName(member.member_id))}</span></label>`).join("")}</div><p class="auto-tobi-status ${recipientCount === 1 || recipientCount === 2 ? "ready" : ""}">${recipientCount === 1 ? "10を1人へ配分" : recipientCount === 2 ? "5ずつを2人へ配分" : "受取先を選択してください"}</p></article>`;
+    return `<article class="auto-tobi-card" data-auto-tobi-card="${fromMember.member_id}" hidden><strong>${escapeHtml(getMemberName(fromMember.member_id))} がトビ</strong><small>受取先を1人または2人選択</small><div class="tobi-recipient-grid">${candidates.map((member) => `<label class="tobi-recipient-choice"><input type="checkbox" data-auto-tobi-from-member-id="${fromMember.member_id}" value="${member.member_id}"><span>${escapeHtml(getMemberName(member.member_id))}</span></label>`).join("")}</div><p class="auto-tobi-status" data-auto-tobi-status="${fromMember.member_id}">受取先を選択してください</p></article>`;
   }).join("")}</div>`;
 }
 
@@ -1791,7 +1789,7 @@ function bindHanchanEditorEvents() {
     refreshHanchanPreview();
     refreshAllHanchanCards();
     refreshPointBalance();
-    refreshAutoTobiPanel(true);
+    refreshAutoTobiPanel(false);
   }));
   document.getElementById("enableManualRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "manual"; const automatic = getAutoRanksFromFinalPoints(); if (automatic.complete && automatic.valid) activeMatchMembers.forEach((member) => { hanchanDraft.results[member.member_id].rank = automatic.ranks[member.member_id]; }); renderActiveSessionView(); });
   document.getElementById("enableAutoRankButton")?.addEventListener("click", () => { hanchanDraft.rankMode = "auto"; syncAutoRanks(); renderActiveSessionView(); });
@@ -1830,31 +1828,53 @@ function refreshAutoRankOutputs() {
   });
 }
 function refreshAutoTobiPanel(force = false) {
-  const nextSignature = getTobiMembersFromDraft().map((member) => member.member_id).sort().join("|");
+  const tobiMembers = getTobiMembersFromDraft();
+  const nextSignature = tobiMembers.map((member) => member.member_id).sort().join("|");
   const host = document.getElementById("autoTobiPanelHost");
   const note = document.getElementById("autoTobiNote");
   const transferList = document.getElementById("tobiTransferList");
-  if (!host || !note || !transferList) {
+  const panel = document.getElementById("autoTobiPanel");
+  if (!host || !note || !transferList || !panel) {
     lastAutoTobiSignature = nextSignature;
     return;
   }
 
-  /*
-   * 最終持ち点の入力ごとに飛ばし点領域を作り直すと、iPhone PWAでは
-   * フォーカス／レイアウト再計算により画面が上部へ戻ることがある。
-   * トビ対象が変わらない限り、通常の点数入力ではこの領域に一切触れない。
-   */
-  if (!force && nextSignature === lastAutoTobiSignature) return;
-
-  host.innerHTML = renderAutoTobiPanelMarkup();
-  note.textContent = nextSignature
+  // トビ発生時もDOMを置換しない。iPhone PWAで発生していた上部へのスクロールと
+  // チラつきは、host.innerHTMLによるチェックボックス領域の再生成が原因だった。
+  const tobiIds = new Set(tobiMembers.map((member) => member.member_id));
+  panel.classList.toggle("is-idle", !tobiIds.size);
+  panel.classList.toggle("is-active", Boolean(tobiIds.size));
+  note.textContent = tobiIds.size
     ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。"
     : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。";
-  transferList.innerHTML = renderTobiTransferRows() || `<p class="game-section-note">飛ばし点なし</p>`;
-  bindAutoTobiRecipientEvents(host);
-  bindTobiTransferEvents(transferList);
+
+  activeMatchMembers.forEach((fromMember) => {
+    const card = panel.querySelector(`[data-auto-tobi-card="${fromMember.member_id}"]`);
+    if (!card) return;
+    const active = tobiIds.has(fromMember.member_id);
+    card.hidden = !active;
+    if (!active) return;
+    const recipients = hanchanDraft.tobiRecipientsByFrom?.[fromMember.member_id] || [];
+    const count = recipients.length;
+    card.querySelectorAll("[data-auto-tobi-from-member-id]").forEach((input) => {
+      input.checked = recipients.includes(input.value);
+      input.disabled = count >= 2 && !input.checked;
+    });
+    const status = card.querySelector(`[data-auto-tobi-status="${fromMember.member_id}"]`);
+    if (status) {
+      status.textContent = count === 1 ? "10を1人へ配分" : count === 2 ? "5ずつを2人へ配分" : "受取先を選択してください";
+      status.classList.toggle("ready", count === 1 || count === 2);
+    }
+  });
+
+  // 点数入力時は送金行を作り直さない。受取先を操作した時だけ更新する。
+  if (force) {
+    transferList.innerHTML = renderTobiTransferRows() || `<p class="game-section-note">飛ばし点なし</p>`;
+    bindTobiTransferEvents(transferList);
+  }
   lastAutoTobiSignature = nextSignature;
 }
+
 function refreshPointBalance() { const el = document.getElementById("hanchanPointBalance"); if (!el) return; const b = getDraftPointBalance(); el.textContent = b.complete ? b.difference === 0 ? `最終持ち点合計：${b.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${b.total.toLocaleString()}点 / 差額 ${b.difference > 0 ? "+" : ""}${b.difference.toLocaleString()}点` : `最終持ち点入力：${b.enteredCount} / ${activeMatchMembers.length}人`; el.classList.toggle("error", b.complete && b.difference !== 0); }
 function refreshAllHanchanCards() { activeMatchMembers.forEach((m) => refreshHanchanMemberCard(m.member_id)); }
 function refreshHanchanMemberCard(id) {
