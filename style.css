@@ -2037,3 +2037,105 @@ button.history-calendar-cell { cursor: pointer; }
     font-size: 18px;
   }
 }
+
+/* v58: prevent My Page from widening / zooming on mobile */
+.my-page-unified-v57,
+.my-page-unified-v57 *,
+.my-page-section-v57,
+.my-page-kpi-grid-v57,
+.my-page-debt-grid-v57,
+.my-page-split-grid-v57,
+.my-page-kpi-v57,
+.my-page-debt-tile-v57,
+.my-page-chart-section,
+.my-page-session-list,
+.my-page-stat-list {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.my-page-unified-v57 {
+  overflow-x: hidden;
+}
+
+.my-page-heading-v57 > div {
+  min-width: 0;
+}
+
+.my-page-heading-v57 .eyebrow,
+.my-page-heading-v57 h2,
+.my-page-heading-v57 p:not(.eyebrow),
+.my-page-section-v57 h3,
+.my-page-kpi-v57 > strong,
+.my-page-debt-tile-v57 > strong,
+.my-page-kpi-v57 > small,
+.my-page-debt-tile-v57 > small,
+.my-page-stat-list strong,
+.my-page-yakuman-row span,
+.my-page-session-row strong,
+.my-page-session-row small {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.my-page-chart-section .trend-chart-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.my-page-chart-section .trend-svg {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 430px) {
+  .my-page-unified-v57 {
+    width: 100%;
+    max-width: 100%;
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
+  .my-page-heading-v57 {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .my-page-heading-v57 .secondary-button {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .my-page-kpi-grid-v57,
+  .my-page-debt-grid-v57,
+  .my-page-split-grid-v57 {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .my-page-kpi-v57,
+  .my-page-debt-tile-v57,
+  .my-page-section-v57 {
+    width: 100%;
+  }
+
+  .my-page-kpi-v57 > b,
+  .my-page-debt-tile-v57 > b {
+    white-space: normal;
+  }
+
+  .my-page-session-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .my-page-session-row b {
+    justify-self: start;
+  }
+}
