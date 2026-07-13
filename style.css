@@ -1528,3 +1528,212 @@ button.history-calendar-cell { cursor: pointer; }
     min-height: 72px;
   }
 }
+
+
+/* v56: normalize My Page sizing to match the rest of the app */
+.my-page-card {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 4px 0 30px;
+  gap: 16px;
+}
+
+.my-page-hero {
+  padding: 18px;
+  border-radius: 22px;
+  box-shadow: 0 8px 22px rgba(21, 41, 31, 0.05);
+}
+
+.my-page-hero h2 {
+  margin: 2px 0 7px;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.my-page-hero p:last-child {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.my-page-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.my-page-kpi {
+  min-height: 92px;
+  padding: 14px 12px;
+  border-radius: 17px;
+  box-shadow: 0 4px 13px rgba(21, 41, 31, 0.04);
+}
+
+.my-page-kpi span,
+.my-page-kpi small {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.my-page-kpi strong {
+  overflow: hidden;
+  font-size: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-page-debt-panel,
+.my-page-split-grid > .game-section,
+.my-page-chart-section,
+.my-page-card > .game-section {
+  padding: 16px;
+  border: 1px solid #dce6df;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 4px 13px rgba(21, 41, 31, 0.04);
+}
+
+.my-page-chart-section,
+.my-page-split-grid > .game-section,
+.my-page-card > .game-section {
+  margin-top: 0;
+  padding-top: 16px;
+}
+
+.my-page-debt-panel h3,
+.my-page-card .game-section-title {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+.my-page-debt-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.my-page-debt-grid button {
+  min-height: 86px;
+  padding: 12px 10px;
+  border-radius: 15px;
+}
+
+.my-page-debt-grid button strong {
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-page-debt-grid button span,
+.my-page-debt-grid button small {
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.my-page-split-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.my-page-stat-list div,
+.my-page-yakuman-row,
+.my-page-session-row {
+  padding: 11px 0;
+}
+
+.my-page-stat-list span,
+.my-page-yakuman-row small,
+.my-page-session-row small {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.my-page-session-row {
+  border-radius: 12px;
+  border-bottom: 0;
+  background: #f8faf9;
+}
+
+@media (max-width: 720px) {
+  .my-page-card {
+    gap: 14px;
+    padding: 2px 0 28px;
+  }
+
+  .my-page-hero {
+    gap: 12px;
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .my-page-hero h2 {
+    font-size: 24px;
+  }
+
+  .my-page-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .my-page-kpi {
+    min-height: 88px;
+    padding: 13px 10px;
+  }
+
+  .my-page-kpi strong {
+    font-size: 17px;
+  }
+
+  .my-page-debt-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .my-page-debt-grid button {
+    min-height: 84px;
+    padding: 11px 8px;
+  }
+
+  .my-page-debt-grid button strong {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 430px) {
+  .my-page-hero p:last-child {
+    font-size: 12px;
+  }
+
+  .my-page-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .my-page-kpi span,
+  .my-page-kpi small,
+  .my-page-debt-grid button span,
+  .my-page-debt-grid button small {
+    font-size: 9px;
+  }
+
+  .my-page-kpi strong {
+    font-size: 16px;
+  }
+
+  .my-page-debt-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .my-page-debt-grid button {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    min-height: auto;
+    gap: 4px 8px;
+  }
+
+  .my-page-debt-grid button span,
+  .my-page-debt-grid button small {
+    grid-column: 1 / -1;
+  }
+}

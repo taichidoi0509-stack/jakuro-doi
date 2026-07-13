@@ -1,4 +1,4 @@
-const CACHE_NAME = "moriken-mahjong-v55";
+const CACHE_NAME = "moriken-mahjong-v56";
 
 const APP_SHELL = [
   "./",
