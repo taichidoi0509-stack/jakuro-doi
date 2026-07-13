@@ -8596,35 +8596,40 @@ function renderMyPageV55() {
   `).join("") : `<p class="ranking-note">役満記録はまだありません。</p>`;
 
   page.innerHTML = `
-    <section class="my-page-card">
-      <header class="my-page-hero">
-        <div><p class="eyebrow">MY PAGE</p><h2>${escapeHtml(stats.displayName)}の個人成績</h2><p>自分の戦績、未精算借pt、最近の対局をまとめています。</p></div>
+    <section class="v41-dashboard my-page-card my-page-unified-v57">
+      <header class="v41-dashboard-heading my-page-heading-v57">
+        <div>
+          <p class="eyebrow">MY PAGE</p>
+          <h2>${escapeHtml(stats.displayName)}のマイページ</h2>
+          <p>自分の成績、未精算借pt、最近の対局を確認できます。</p>
+        </div>
         <button type="button" class="secondary-button" data-v55-my-page-refresh>更新</button>
       </header>
 
-      <section class="my-page-kpi-grid">
-        <div class="my-page-kpi main"><span>累計pt</span><strong>${formatPtMarkup(stats.totalPt)}</strong><small>チップ込み・場代除外</small></div>
-        <div class="my-page-kpi"><span>${escapeHtml(monthLabel)}</span><strong>${formatPtMarkup(stats.monthPt)}</strong><small>今月の総合pt</small></div>
-        <div class="my-page-kpi"><span>平均順位</span><strong>${stats.averageRank ?? "-"}</strong><small>${stats.hanchans}半荘</small></div>
-        <div class="my-page-kpi"><span>1位率 / ラス率</span><strong>${stats.firstRate !== null ? `${stats.firstRate}%` : "-"} / ${stats.lastRate !== null ? `${stats.lastRate}%` : "-"}</strong><small>半荘単位</small></div>
+      <section class="v41-dashboard-grid my-page-kpi-grid my-page-kpi-grid-v57">
+        <div class="v41-dashboard-tile my-page-kpi my-page-kpi-v57 main"><span>計</span><strong>累計pt</strong><b class="${signedClass(stats.totalPt)}">${formatPtMarkup(stats.totalPt)}</b><small>チップ込み・場代除外</small></div>
+        <div class="v41-dashboard-tile my-page-kpi my-page-kpi-v57"><span>月</span><strong>${escapeHtml(monthLabel)}</strong><b class="${signedClass(stats.monthPt)}">${formatPtMarkup(stats.monthPt)}</b><small>今月の総合pt</small></div>
+        <div class="v41-dashboard-tile my-page-kpi my-page-kpi-v57"><span>順</span><strong>平均順位</strong><b>${stats.averageRank ?? "-"}</b><small>${stats.hanchans}半荘</small></div>
+        <div class="v41-dashboard-tile my-page-kpi my-page-kpi-v57"><span>率</span><strong>1位率 / ラス率</strong><b>${stats.firstRate !== null ? `${stats.firstRate}%` : "-"} / ${stats.lastRate !== null ? `${stats.lastRate}%` : "-"}</b><small>半荘単位</small></div>
       </section>
 
-      <section class="my-page-debt-panel">
-        <div><p class="eyebrow">OPEN BALANCE</p><h3>自分の未精算借pt</h3></div>
-        <div class="my-page-debt-grid">
-          <button type="button" data-v55-go-debt><span>支払う</span><strong>${formatPtPlain(debt.payTotal)}</strong><small>${debt.payDebts.length}件</small></button>
-          <button type="button" data-v55-go-debt><span>受け取る</span><strong>${formatPtPlain(debt.receiveTotal)}</strong><small>${debt.receiveDebts.length}件</small></button>
-          <button type="button" data-v55-go-debt><span>差額</span><strong class="${signedClass(debt.net)}">${formatPtPlain(debt.net)}</strong><small>＋なら受け取り超過</small></button>
+      <section class="v41-recent-section my-page-debt-panel my-page-section-v57">
+        <div class="v41-section-heading"><div><p class="eyebrow">OPEN BALANCE</p><h3>自分の未精算借pt</h3></div><button type="button" data-v55-go-debt>精算へ</button></div>
+        <div class="v41-dashboard-grid my-page-debt-grid my-page-debt-grid-v57">
+          <button type="button" class="v41-dashboard-tile my-page-debt-tile-v57" data-v55-go-debt><span>払</span><strong>支払う</strong><b>${formatPtPlain(debt.payTotal)}</b><small>${debt.payDebts.length}件</small></button>
+          <button type="button" class="v41-dashboard-tile my-page-debt-tile-v57" data-v55-go-debt><span>受</span><strong>受け取る</strong><b>${formatPtPlain(debt.receiveTotal)}</b><small>${debt.receiveDebts.length}件</small></button>
+          <button type="button" class="v41-dashboard-tile my-page-debt-tile-v57" data-v55-go-debt><span>差</span><strong>差額</strong><b class="${signedClass(debt.net)}">${formatPtPlain(debt.net)}</b><small>＋なら受け取り超過</small></button>
         </div>
       </section>
 
-      <section class="game-section my-page-chart-section">
-        <div class="game-section-heading"><div><p class="game-section-title">自分の累積pt推移</p><p class="game-section-note">日次精算ごとの総合pt。場代は含めません。</p></div></div>
+      <section class="v41-recent-section my-page-chart-section my-page-section-v57">
+        <div class="v41-section-heading"><div><p class="eyebrow">TREND</p><h3>自分の累積pt推移</h3></div></div>
+        <p class="game-section-note">日次精算ごとの総合pt。場代は含めません。</p>
         <div class="trend-chart-wrap">${trend}</div>
       </section>
 
-      <section class="my-page-split-grid">
-        <article class="game-section"><p class="game-section-title">成績内訳</p><div class="my-page-stat-list">
+      <section class="my-page-split-grid my-page-split-grid-v57">
+        <article class="v41-recent-section my-page-section-v57"><div class="v41-section-heading"><h3>成績内訳</h3></div><div class="my-page-stat-list">
           <div><span>対局数</span><strong>${stats.sessions}日</strong></div>
           <div><span>半荘数</span><strong>${stats.hanchans}半荘</strong></div>
           <div><span>素点pt</span><strong>${formatPtMarkup(stats.scorePt)}</strong></div>
@@ -8632,10 +8637,10 @@ function renderMyPageV55() {
           <div><span>最高日次pt</span><strong>${stats.bestSession ? formatPtMarkup(stats.bestSession.totalPt) : "-"}</strong></div>
           <div><span>最低日次pt</span><strong>${stats.worstSession ? formatPtMarkup(stats.worstSession.totalPt) : "-"}</strong></div>
         </div></article>
-        <article class="game-section"><p class="game-section-title">役満記録</p><div class="my-page-yakuman-list">${yakumanRows}</div></article>
+        <article class="v41-recent-section my-page-section-v57"><div class="v41-section-heading"><h3>役満記録</h3></div><div class="my-page-yakuman-list">${yakumanRows}</div></article>
       </section>
 
-      <section class="game-section"><div class="game-section-heading"><p class="game-section-title">最近の自分の対局</p><button type="button" class="secondary-button" data-v55-go-history>履歴へ</button></div><div class="my-page-session-list">${recentRows}</div></section>
+      <section class="v41-recent-section my-page-section-v57"><div class="v41-section-heading"><h3>最近の自分の対局</h3><button type="button" data-v55-go-history>履歴へ</button></div><div class="my-page-session-list">${recentRows}</div></section>
     </section>
   `;
 

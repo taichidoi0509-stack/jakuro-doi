@@ -1737,3 +1737,303 @@ button.history-calendar-cell { cursor: pointer; }
     grid-column: 1 / -1;
   }
 }
+
+/* v57: My Page fully uses the same dashboard rhythm as Home / Analysis / Settings */
+.my-page-unified-v57 {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 4px 0 30px;
+}
+
+.my-page-heading-v57 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.my-page-heading-v57 h2 {
+  margin: 2px 0 7px;
+  font-size: 26px;
+  line-height: 1.22;
+  letter-spacing: -0.04em;
+}
+
+.my-page-heading-v57 p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted, #6b766f);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.my-page-heading-v57 .secondary-button {
+  flex: 0 0 auto;
+  margin-top: 5px;
+}
+
+.my-page-kpi-grid-v57,
+.my-page-debt-grid-v57 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.my-page-kpi-v57,
+.my-page-debt-tile-v57 {
+  display: grid;
+  align-content: start;
+  min-height: 134px;
+  gap: 7px;
+  padding: 17px;
+  border: 1px solid #dde4df;
+  border-radius: 20px;
+  background: #fff;
+  color: #16231d;
+  box-shadow: none;
+  text-align: left;
+}
+
+.my-page-kpi-v57.main {
+  border-color: #1d5a40;
+  background: linear-gradient(135deg, #173f30, #20533d);
+  color: #fff;
+}
+
+.my-page-kpi-v57 > span,
+.my-page-debt-tile-v57 > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: #eaf3ed;
+  color: #1d553e;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.my-page-kpi-v57.main > span {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.my-page-kpi-v57 > strong,
+.my-page-debt-tile-v57 > strong {
+  margin: 0;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  white-space: normal;
+}
+
+.my-page-kpi-v57 > b,
+.my-page-debt-tile-v57 > b {
+  display: block;
+  overflow: hidden;
+  color: var(--green, #0d3b2e);
+  font-size: 22px;
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-page-kpi-v57.main > b {
+  color: #fff;
+}
+
+.my-page-kpi-v57 > small,
+.my-page-debt-tile-v57 > small {
+  margin: 0;
+  color: #718078;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.my-page-kpi-v57.main > small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.my-page-section-v57 {
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #dde4df;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.my-page-section-v57 .v41-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.my-page-section-v57 .v41-section-heading h3 {
+  margin: 2px 0 0;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.my-page-section-v57 .v41-section-heading button {
+  border: 0;
+  background: transparent;
+  color: #19513b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.my-page-debt-panel.my-page-section-v57 {
+  display: grid;
+  gap: 10px;
+}
+
+.my-page-debt-grid-v57 {
+  margin-top: 0;
+}
+
+.my-page-debt-tile-v57 {
+  min-height: 128px;
+  cursor: pointer;
+}
+
+.my-page-debt-tile-v57:active,
+.my-page-session-row:active {
+  transform: scale(0.985);
+}
+
+.my-page-split-grid-v57 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.my-page-stat-list {
+  display: grid;
+  gap: 0;
+}
+
+.my-page-stat-list div,
+.my-page-yakuman-row,
+.my-page-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 12px 4px;
+  border: 0;
+  border-top: 1px solid #edf0ee;
+  background: transparent;
+}
+
+.my-page-stat-list div:first-child,
+.my-page-yakuman-row:first-child,
+.my-page-session-row:first-child {
+  border-top: 0;
+}
+
+.my-page-stat-list span,
+.my-page-yakuman-row small,
+.my-page-session-row small {
+  color: #718078;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.my-page-stat-list strong,
+.my-page-yakuman-row span,
+.my-page-session-row strong {
+  color: var(--ink, #18211e);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.my-page-session-list {
+  display: grid;
+  gap: 0;
+}
+
+.my-page-session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  color: inherit;
+  text-align: left;
+}
+
+.my-page-session-row b {
+  color: var(--green, #0d3b2e);
+  font-size: 13px;
+}
+
+.my-page-chart-section .trend-chart-wrap {
+  margin-top: 12px;
+}
+
+@media (max-width: 430px) {
+  .my-page-unified-v57 {
+    gap: 14px;
+    padding: 4px 0 28px;
+  }
+
+  .my-page-heading-v57 {
+    gap: 10px;
+    padding: 8px 2px;
+  }
+
+  .my-page-heading-v57 h2 {
+    font-size: 24px;
+  }
+
+  .my-page-heading-v57 p:not(.eyebrow) {
+    font-size: 13px;
+  }
+
+  .my-page-heading-v57 .secondary-button {
+    padding: 9px 11px;
+    font-size: 12px;
+  }
+
+  .my-page-kpi-grid-v57,
+  .my-page-debt-grid-v57,
+  .my-page-split-grid-v57 {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .my-page-kpi-v57,
+  .my-page-debt-tile-v57 {
+    min-height: 118px;
+    padding: 15px;
+  }
+
+  .my-page-kpi-v57 > b,
+  .my-page-debt-tile-v57 > b {
+    font-size: 20px;
+  }
+
+  .my-page-section-v57 {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .my-page-section-v57 .v41-section-heading h3 {
+    font-size: 18px;
+  }
+}
