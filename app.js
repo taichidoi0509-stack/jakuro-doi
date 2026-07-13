@@ -1410,6 +1410,7 @@ function renderActiveSessionView() {
     `).join("")
     : `<p class="game-section-note">送金は不要です。</p>`;
   const sessionProgress = buildSessionProgressTrend();
+  const sessionScoreSheet = buildSessionScoreSheet();
 
   page.innerHTML = `
     <section class="game-card">
@@ -1437,6 +1438,16 @@ function renderActiveSessionView() {
         </div>
         <div class="trend-legend">${sessionProgress.legend}</div>
         <div class="trend-chart-wrap">${sessionProgress.svg}</div>
+      </section>
+
+      <section class="game-section score-sheet-section">
+        <div class="game-section-heading">
+          <div>
+            <p class="game-section-title">スコア表</p>
+            <p class="game-section-note">半荘を登録するたびに行が追加され、持ち点・順位・半荘収支を一覧できます。</p>
+          </div>
+        </div>
+        ${sessionScoreSheet}
       </section>
 
       <section class="game-section">
@@ -2314,6 +2325,70 @@ function buildSessionProgressTrend() {
     legend,
     svg: `<svg class="trend-svg session-progress-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="この対局の半荘別pt推移"><line x1="${padX}" x2="${width - padX}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="trend-zero"></line>${lines}${labels}${scaleTop}${scaleBottom}<text x="${width - padX}" y="${height - 8}" text-anchor="end" class="trend-scale">半荘</text></svg>`
   };
+}
+
+
+function buildSessionScoreSheet() {
+  const members = [...activeMatchMembers].map((member) => ({
+    memberId: member.member_id,
+    displayName: getMemberName(member.member_id)
+  }));
+  if (!members.length) {
+    return `<p class="ranking-note">参加者を設定するとスコア表が表示されます。</p>`;
+  }
+  const hanchans = [...activeHanchans].sort((a, b) => num(a.sequence_no) - num(b.sequence_no));
+  if (!hanchans.length) {
+    return `<p class="ranking-note">半荘を登録すると、この対局専用のスコア表に行が追加されます。</p>`;
+  }
+  const totalByMember = new Map(members.map((member) => [member.memberId, 0]));
+  const rowHtml = hanchans.map((hanchan) => {
+    const results = getHanchanResults(hanchan.id);
+    const resultMap = new Map(results.map((result) => [result.member_id, result]));
+    const cells = members.map((member) => {
+      const result = resultMap.get(member.memberId);
+      if (!result) {
+        return `<td class="score-sheet-cell score-sheet-cell-empty">—</td>`;
+      }
+      totalByMember.set(member.memberId, roundOne(num(totalByMember.get(member.memberId)) + num(result.total_points)));
+      const samePointResults = results.filter((item) => Number(item.final_points) === Number(result.final_points));
+      const rankLabel = samePointResults.length > 1
+        ? `${Math.min(...samePointResults.map((item) => Number(item.rank)))}位同着`
+        : `${result.rank}位`;
+      const finalPointText = Number(result.final_points).toLocaleString();
+      return `<td class="score-sheet-cell">
+        <span class="score-sheet-rank">${escapeHtml(rankLabel)}</span>
+        <strong>${finalPointText}</strong>
+        <small>${formatScoreMarkup(result.total_points)}</small>
+      </td>`;
+    }).join("");
+    return `<tr>
+      <th scope="row">第${hanchan.sequence_no}</th>
+      ${cells}
+    </tr>`;
+  }).join("");
+  const totalCells = members.map((member) => `<td class="score-sheet-total-cell"><strong>${formatScoreMarkup(totalByMember.get(member.memberId))}</strong></td>`).join("");
+  const chipCells = members.map((member) => {
+    const chipCount = getChipCount(member.memberId);
+    const chipPoint = roundOne(chipCount * num(activeMatchSession?.chip_value));
+    return `<td class="score-sheet-total-cell"><strong>${formatChipMarkup(chipCount)}</strong><small>${formatScoreMarkup(chipPoint)}</small></td>`;
+  }).join("");
+  return `<div class="score-sheet-scroll" aria-label="半荘別スコア表">
+    <table class="session-score-sheet">
+      <thead>
+        <tr>
+          <th scope="col">半荘</th>
+          ${members.map((member) => `<th scope="col">${escapeHtml(member.displayName)}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${rowHtml}
+      </tbody>
+      <tfoot>
+        <tr class="score-sheet-total-row"><th scope="row">Total</th>${totalCells}</tr>
+        <tr class="score-sheet-chip-row"><th scope="row">Chip</th>${chipCells}</tr>
+      </tfoot>
+    </table>
+  </div>`;
 }
 
 function buildAllTrendSvg(dailySessions, entries, selectedMemberId, metric = rankingMetric) {
