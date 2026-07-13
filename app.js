@@ -1409,6 +1409,7 @@ function renderActiveSessionView() {
       </div>
     `).join("")
     : `<p class="game-section-note">送金は不要です。</p>`;
+  const sessionProgress = buildSessionProgressTrend();
 
   page.innerHTML = `
     <section class="game-card">
@@ -1428,6 +1429,15 @@ function renderActiveSessionView() {
         <div><span>チップ単価</span><strong>${session.chip_value} / 枚</strong></div>
       </div>
       ${gameMessage ? `<p class="game-success-message">${escapeHtml(gameMessage)}</p>` : ""}
+
+      <section class="game-section session-progress-section">
+        <div class="game-section-heading">
+          <p class="game-section-title">この対局のpt推移</p>
+          <span class="all-trend-note">半荘ごとの累積ゲーム収支</span>
+        </div>
+        <div class="trend-legend">${sessionProgress.legend}</div>
+        <div class="trend-chart-wrap">${sessionProgress.svg}</div>
+      </section>
 
       <section class="game-section">
         <div class="game-section-heading">
@@ -2254,6 +2264,58 @@ function buildTrendSvg(history, metric = rankingMetric) {
   return `<svg class="trend-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="累積${escapeHtml(RANKING_METRICS[metric].label)}推移"><line x1="${padX}" x2="${width-padX}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="trend-zero"/><polyline points="${points}" class="trend-line"/>${circles}${labels}<text x="${padX}" y="${padY-6}" class="trend-scale">${formatNumber(max,0)} ${RANKING_METRICS[metric].unit}</text><text x="${padX}" y="${height-padY+14}" class="trend-scale">${formatNumber(min,0)} ${RANKING_METRICS[metric].unit}</text></svg>`;
 }
 
+
+function buildSessionProgressTrend() {
+  if (!activeHanchans.length || !activeMatchMembers.length) {
+    return { legend: "", svg: `<p class="ranking-note">この対局のpt推移は、半荘を登録すると表示されます。</p>` };
+  }
+  const palette = ["#4f3b82", "#0d6b5b", "#bd6b22", "#b53565", "#2767a8", "#7b5e27", "#66703c", "#8c4f9d"];
+  const hanchans = [...activeHanchans].sort((a, b) => num(a.sequence_no) - num(b.sequence_no));
+  const running = new Map(activeMatchMembers.map((member) => [member.member_id, 0]));
+  const series = activeMatchMembers.map((member, index) => ({
+    memberId: member.member_id,
+    displayName: getMemberName(member.member_id),
+    color: palette[index % palette.length],
+    values: [0]
+  }));
+  hanchans.forEach((hanchan) => {
+    const resultMap = new Map(getHanchanResults(hanchan.id).map((result) => [result.member_id, num(result.total_points)]));
+    series.forEach((line) => {
+      const next = roundOne(num(running.get(line.memberId)) + num(resultMap.get(line.memberId)));
+      running.set(line.memberId, next);
+      line.values.push(next);
+    });
+  });
+  const values = series.flatMap((line) => line.values);
+  const width = Math.max(660, 120 + hanchans.length * 54);
+  const height = 260;
+  const padX = 42;
+  const padY = 30;
+  const usableWidth = width - padX * 2;
+  const usableHeight = height - padY * 2;
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 0);
+  const range = max - min || 1;
+  const x = (index) => padX + (hanchans.length <= 0 ? usableWidth / 2 : (usableWidth * index) / hanchans.length);
+  const y = (value) => padY + ((max - value) / range) * usableHeight;
+  const labelInterval = Math.max(1, Math.ceil(hanchans.length / 10));
+  const labels = hanchans.map((hanchan, index) => (hanchans.length <= 10 || index === 0 || index === hanchans.length - 1 || (index + 1) % labelInterval === 0)
+    ? `<text x="${x(index + 1).toFixed(1)}" y="${height - 8}" text-anchor="middle" class="trend-label">${hanchan.sequence_no}</text>`
+    : "").join("");
+  const lines = series.map((line) => {
+    const points = line.values.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+    const circles = line.values.slice(1).map((value, index) => `<circle cx="${x(index + 1).toFixed(1)}" cy="${y(value).toFixed(1)}" r="3.3" class="all-trend-point" style="stroke:${line.color};fill:#fff;opacity:.9"></circle>`).join("");
+    return `<polyline points="${points}" class="all-trend-line" style="stroke:${line.color};stroke-width:3.2;opacity:.88"></polyline>${circles}`;
+  }).join("");
+  const legend = series.map((line) => `<span class="trend-legend-item"><i style="background:${line.color}"></i>${escapeHtml(line.displayName)}</span>`).join("");
+  const scaleTop = `<text x="${padX}" y="${padY - 7}" class="trend-scale">${formatNumber(max, 1)}</text>`;
+  const scaleBottom = `<text x="${padX}" y="${height - padY + 15}" class="trend-scale">${formatNumber(min, 1)}</text>`;
+  return {
+    legend,
+    svg: `<svg class="trend-svg session-progress-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="この対局の半荘別pt推移"><line x1="${padX}" x2="${width - padX}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="trend-zero"></line>${lines}${labels}${scaleTop}${scaleBottom}<text x="${width - padX}" y="${height - 8}" text-anchor="end" class="trend-scale">半荘</text></svg>`
+  };
+}
+
 function buildAllTrendSvg(dailySessions, entries, selectedMemberId, metric = rankingMetric) {
   if (!dailySessions.length || !entries.length) return { legend: "", svg: `<p class="ranking-note">累積${RANKING_METRICS[metric].label}を表示する精算済み記録がありません。</p>` };
   const palette = ["#4f3b82", "#0d6b5b", "#bd6b22", "#b53565", "#2767a8", "#7b5e27", "#66703c", "#8c4f9d"];
@@ -2480,6 +2542,138 @@ function getDebtMemberSummary() {
     return { member, outgoing: roundTo(outgoing, 2), incoming: roundTo(incoming, 2), net: roundTo(incoming - outgoing, 2) };
   });
 }
+function getDebtPairSummary() {
+  const pairs = new Map();
+  getOpenDebtRecords().forEach((record) => {
+    const key = `${record.debtor_member_id}:${record.creditor_member_id}`;
+    if (!pairs.has(key)) {
+      pairs.set(key, {
+        debtorMemberId: record.debtor_member_id,
+        creditorMemberId: record.creditor_member_id,
+        amount: 0,
+        count: 0,
+        sourceSessionCount: 0,
+        manualCount: 0
+      });
+    }
+    const pair = pairs.get(key);
+    pair.amount = roundTo(pair.amount + num(record.remaining_amount_pt), 2);
+    pair.count += 1;
+    if (record.record_kind === "settlement") pair.sourceSessionCount += 1;
+    if (record.record_kind === "manual") pair.manualCount += 1;
+  });
+  return [...pairs.values()].filter((pair) => pair.amount > 0.004).sort((a, b) => b.amount - a.amount || getMemberName(a.debtorMemberId).localeCompare(getMemberName(b.debtorMemberId), "ja"));
+}
+function getOptimizedDebtRoutesFromOpen() {
+  const debtors = getDebtMemberSummary()
+    .filter((item) => item.net < -0.004)
+    .map((item) => ({ memberId: item.member.id, displayName: item.member.display_name, remaining: roundTo(-item.net, 2) }))
+    .sort((a, b) => b.remaining - a.remaining || a.displayName.localeCompare(b.displayName, "ja"));
+  const creditors = getDebtMemberSummary()
+    .filter((item) => item.net > 0.004)
+    .map((item) => ({ memberId: item.member.id, displayName: item.member.display_name, remaining: roundTo(item.net, 2) }))
+    .sort((a, b) => b.remaining - a.remaining || a.displayName.localeCompare(b.displayName, "ja"));
+  const routes = [];
+  let d = 0;
+  let c = 0;
+  while (d < debtors.length && c < creditors.length) {
+    const amount = roundTo(Math.min(debtors[d].remaining, creditors[c].remaining), 2);
+    if (amount > 0.004) {
+      routes.push({
+        fromMemberId: debtors[d].memberId,
+        toMemberId: creditors[c].memberId,
+        from: debtors[d].displayName,
+        to: creditors[c].displayName,
+        amount
+      });
+    }
+    debtors[d].remaining = roundTo(debtors[d].remaining - amount, 2);
+    creditors[c].remaining = roundTo(creditors[c].remaining - amount, 2);
+    if (debtors[d].remaining < 0.004) d += 1;
+    if (creditors[c].remaining < 0.004) c += 1;
+  }
+  return routes;
+}
+function shouldShowDebtConsolidationButton(openRecords, pairSummary, optimizedRoutes) {
+  if (!openRecords.length || !optimizedRoutes.length) return false;
+  if (openRecords.length > pairSummary.length) return true;
+  if (pairSummary.length !== optimizedRoutes.length) return true;
+  const pairKey = (from, to) => `${from}:${to}`;
+  const pairs = new Map(pairSummary.map((pair) => [pairKey(pair.debtorMemberId, pair.creditorMemberId), roundTo(pair.amount, 2)]));
+  return optimizedRoutes.some((route) => !nearlyEqual(pairs.get(pairKey(route.fromMemberId, route.toMemberId)), route.amount));
+}
+function renderDebtConsolidationSection(openRecords, memberSummary, pairSummary, optimizedRoutes) {
+  const netRows = memberSummary.length ? memberSummary
+    .slice()
+    .sort((a, b) => b.net - a.net || a.member.display_name.localeCompare(b.member.display_name, "ja"))
+    .map((item) => `<div class="debt-net-row"><span>${escapeHtml(item.member.display_name)}</span><small>支払 ${formatPtPlain(item.outgoing)} ／ 受取 ${formatPtPlain(item.incoming)}</small><strong class="signed-value ${signedClass(item.net)}">差額 ${formatPt(item.net)}</strong></div>`)
+    .join("") : `<p class="game-section-note">メンバーがいません。</p>`;
+  const pairRows = pairSummary.length ? pairSummary.map((pair) => `<div class="debt-route-aggregate-row"><span>${escapeHtml(getMemberName(pair.debtorMemberId))} <b>→</b> ${escapeHtml(getMemberName(pair.creditorMemberId))}</span><strong>${formatPtPlain(pair.amount)}</strong><small>${pair.count}件を合算</small></div>`).join("") : `<p class="game-section-note">未精算の借ptはありません。</p>`;
+  const optimizedRows = optimizedRoutes.length ? optimizedRoutes.map((route) => `<div class="debt-optimized-route-row"><span>${escapeHtml(route.from)} <b>→</b> ${escapeHtml(route.to)}</span><strong>${formatPtPlain(route.amount)}</strong></div>`).join("") : `<p class="game-section-note">最短ルートで送金する必要はありません。</p>`;
+  const showButton = shouldShowDebtConsolidationButton(openRecords, pairSummary, optimizedRoutes);
+  return `<section class="game-section debt-consolidation-section">
+    <div class="game-section-heading">
+      <div><p class="game-section-title">未精算借ptのまとめ</p><small class="all-trend-note">現在残っている借ptを合算し、最短送金ルートを計算します。</small></div>
+      ${showButton ? `<button id="consolidateOpenDebtButton" class="primary-button debt-consolidate-button" type="button">最短ルートにまとめ直す</button>` : ""}
+    </div>
+    <div class="debt-consolidation-grid">
+      <article class="debt-consolidation-card"><p>メンバー別差額</p><div class="debt-net-list">${netRows}</div></article>
+      <article class="debt-consolidation-card"><p>同じ相手同士で合算</p><div class="debt-route-aggregate-list">${pairRows}</div></article>
+      <article class="debt-consolidation-card optimized"><p>最短精算ルート</p><div class="debt-optimized-route-list">${optimizedRows}</div></article>
+    </div>
+    <p class="game-section-note">「まとめ直す」を押すと、現在の未精算借ptを取消し、上の最短ルートを新しい未精算借ptとして作り直します。送金済み扱いにはしません。</p>
+  </section>`;
+}
+async function consolidateOpenDebtsToOptimizedRoutes() {
+  const openRecords = getOpenDebtRecords();
+  const pairSummary = getDebtPairSummary();
+  const optimizedRoutes = getOptimizedDebtRoutesFromOpen();
+  if (!openRecords.length || !optimizedRoutes.length) return;
+  if (!shouldShowDebtConsolidationButton(openRecords, pairSummary, optimizedRoutes)) {
+    debtMessage = "すでに最短ルートに近い形でまとまっています。";
+    renderDebtPage();
+    return;
+  }
+  const routeText = optimizedRoutes.map((route) => `・${route.from} → ${route.to}：${formatPtPlain(route.amount)}`).join("\n");
+  if (!window.confirm(`現在の未精算借pt ${openRecords.length}件を取消し、以下の最短ルート ${optimizedRoutes.length}件にまとめ直します。\n\n${routeText}\n\n送金済みにはせず、未精算借ptとして作り直します。実行しますか？`)) return;
+  const button = document.getElementById("consolidateOpenDebtButton");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "まとめ直し中...";
+  }
+  try {
+    markLocalRealtimeWrite();
+    for (const record of openRecords) {
+      const { error } = await supabaseClient.rpc("cancel_debt_record", {
+        p_debt_id: record.id,
+        p_memo: "最短ルートへまとめ直し"
+      });
+      if (error) throw error;
+    }
+    for (const route of optimizedRoutes) {
+      const { error } = await supabaseClient.rpc("create_debt_record", {
+        p_group_id: activeGroupId,
+        p_debtor_member_id: route.fromMemberId,
+        p_creditor_member_id: route.toMemberId,
+        p_amount_pt: route.amount,
+        p_source_session_id: null,
+        p_memo: "未精算借ptを最短ルートへまとめ直し",
+        p_due_date: null
+      });
+      if (error) throw error;
+    }
+    debtOpenPaymentId = null;
+    debtOpenRerouteId = null;
+    debtViewMode = "open";
+    debtMessage = `${openRecords.length}件の未精算借ptを、最短ルート${optimizedRoutes.length}件にまとめ直しました。`;
+    await loadDebtData();
+  } catch (error) {
+    debtMessage = error.message || "借ptをまとめ直せませんでした。";
+    await loadDebtData();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
 async function fetchDebtData() {
   if (!currentSession || !activeGroupId) {
     debtRecords = [];
@@ -2582,6 +2776,9 @@ function renderDebtPage() {
   const displayed = debtViewMode === "open" ? openRecords : historyRecords;
   const openTotal = roundTo(openRecords.reduce((sum, record) => sum + num(record.remaining_amount_pt), 0), 2);
   const memberSummary = getDebtMemberSummary();
+  const debtPairSummary = getDebtPairSummary();
+  const optimizedDebtRoutes = getOptimizedDebtRoutesFromOpen();
+  const debtConsolidationSection = renderDebtConsolidationSection(openRecords, memberSummary, debtPairSummary, optimizedDebtRoutes);
   const memberOptions = activeGroupMembers.map((member) => `<option value="${member.id}">${escapeHtml(member.display_name)}</option>`).join("");
   const createForm = activeGroupMembers.length >= 2 ? `<form id="debtCreateForm" class="debt-create-form">
     <div class="debt-form-grid"><label>支払う人<select name="debtorMemberId" required>${memberOptions}</select></label><label>受け取る人<select name="creditorMemberId" required>${memberOptions}</select></label><label>借pt（pt）<input name="amount" type="number" min="0.01" step="0.01" placeholder="例：5000" required></label><label>期限（任意）<input name="dueDate" type="date"></label></div>
@@ -2592,13 +2789,14 @@ function renderDebtPage() {
     <div class="game-card-heading"><div><p class="eyebrow">DEBT</p><h2>借pt管理</h2></div><span class="debt-open-badge">未精算 ${formatPtPlain(openTotal)}</span></div>
     <p class="game-description">未精算の送金を残し、支払い・一部支払い・横流しを記録します。横流しは自動で行わず、対象と金額を選んだときだけ実行します。</p>
     ${debtMessage ? `<p class="settings-notice">${escapeHtml(debtMessage)}</p>` : ""}
+    ${debtConsolidationSection}
     <section class="game-section"><p class="game-section-title">借ptを手動で追加</p>${createForm}</section>
-    <section class="game-section"><p class="game-section-title">未精算サマリー</p><div class="debt-member-summary">${memberSummary.map((item) => `<div><span>${escapeHtml(item.member.display_name)}</span><small>支払 ${formatPtPlain(item.outgoing)} ／ 受取 ${formatPtPlain(item.incoming)}</small><strong class="signed-value ${signedClass(item.net)}">差額 ${formatPt(item.net)}</strong></div>`).join("")}</div></section>
     <section class="game-section"><div class="game-section-heading"><p class="game-section-title">借pt一覧</p><div class="debt-view-tabs"><button type="button" class="ranking-filter-button ${debtViewMode === "open" ? "active" : ""}" data-debt-view="open">未精算（${openRecords.length}）</button><button type="button" class="ranking-filter-button ${debtViewMode === "history" ? "active" : ""}" data-debt-view="history">履歴（${historyRecords.length}）</button></div></div><div class="debt-record-list">${displayed.length ? displayed.map(renderDebtRecord).join("") : `<p class="game-section-note">${debtViewMode === "open" ? "未精算の借ptはありません。" : "履歴はまだありません。"}</p>`}</div></section>
   </section>`;
   bindDebtPageEvents();
 }
 function bindDebtPageEvents() {
+  document.getElementById("consolidateOpenDebtButton")?.addEventListener("click", () => { void consolidateOpenDebtsToOptimizedRoutes(); });
   document.querySelectorAll("[data-debt-view]").forEach((button) => button.addEventListener("click", () => { debtViewMode = button.dataset.debtView; debtOpenPaymentId = null; debtOpenRerouteId = null; renderDebtPage(); }));
   document.getElementById("debtCreateForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();

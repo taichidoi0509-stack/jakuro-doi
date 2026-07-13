@@ -1319,3 +1319,25 @@ button.history-calendar-cell { cursor: pointer; }
 .auto-tobi-status { margin: 10px 0 0; font-weight: 700; color: #a12b2b; }
 .auto-tobi-status.ready { color: #18744b; }
 @media (max-width: 360px) { .tobi-recipient-grid { grid-template-columns: 1fr; } }
+
+/* v54: debt consolidation and session progress graph */
+.session-progress-section { border-top-color: #ddd4f6; }
+.session-progress-svg { min-width: 660px; }
+.debt-consolidation-section { border-top-color: #eadfcb; }
+.debt-consolidate-button { padding: 9px 12px; font-size: 11px; white-space: nowrap; }
+.debt-consolidation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.debt-consolidation-card { display: grid; align-content: start; gap: 10px; padding: 13px; border: 1px solid #eadfcb; border-radius: 15px; background: #fffdf9; }
+.debt-consolidation-card.optimized { border-color: #d4e6d6; background: #f7fcf8; }
+.debt-consolidation-card > p { margin: 0; color: var(--ink); font-size: 12px; font-weight: 900; }
+.debt-net-list, .debt-route-aggregate-list, .debt-optimized-route-list { display: grid; gap: 8px; }
+.debt-net-row, .debt-route-aggregate-row, .debt-optimized-route-row { display: grid; gap: 3px; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.82); border: 1px solid rgba(0,0,0,.05); }
+.debt-net-row span, .debt-route-aggregate-row span, .debt-optimized-route-row span { color: var(--ink); font-size: 12px; font-weight: 900; }
+.debt-route-aggregate-row b, .debt-optimized-route-row b { color: #a36b1c; }
+.debt-net-row small, .debt-route-aggregate-row small { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.debt-net-row strong, .debt-route-aggregate-row strong, .debt-optimized-route-row strong { font-size: 13px; }
+.debt-optimized-route-row strong { color: #176b3b; }
+@media (max-width: 820px) { .debt-consolidation-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+  .debt-consolidation-section .game-section-heading { align-items: stretch; flex-direction: column; }
+  .debt-consolidate-button { width: 100%; justify-content: center; }
+}
