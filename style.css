@@ -1341,3 +1341,190 @@ button.history-calendar-cell { cursor: pointer; }
   .debt-consolidation-section .game-section-heading { align-items: stretch; flex-direction: column; }
   .debt-consolidate-button { width: 100%; justify-content: center; }
 }
+
+/* v55: personal member page */
+.my-page-card {
+  display: grid;
+  gap: 18px;
+}
+
+.my-page-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(15, 93, 63, 0.1), rgba(255, 255, 255, 0.94));
+  border: 1px solid rgba(15, 93, 63, 0.15);
+}
+
+.my-page-hero h2 {
+  margin: 4px 0 6px;
+}
+
+.my-page-hero p:last-child {
+  margin: 0;
+  color: var(--muted-text, #6b7280);
+}
+
+.my-page-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.my-page-kpi {
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid rgba(15, 93, 63, 0.12);
+  box-shadow: 0 10px 28px rgba(15, 93, 63, 0.06);
+  display: grid;
+  gap: 6px;
+}
+
+.my-page-kpi.main {
+  background: #0f5d3f;
+  color: #fff;
+}
+
+.my-page-kpi.main small,
+.my-page-kpi.main span {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.my-page-kpi span,
+.my-page-kpi small {
+  font-size: 0.78rem;
+  color: var(--muted-text, #6b7280);
+}
+
+.my-page-kpi strong {
+  font-size: 1.25rem;
+}
+
+.my-page-debt-panel {
+  padding: 18px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid rgba(15, 93, 63, 0.12);
+  display: grid;
+  gap: 14px;
+}
+
+.my-page-debt-panel h3 {
+  margin: 4px 0 0;
+}
+
+.my-page-debt-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.my-page-debt-grid button {
+  border: 0;
+  border-radius: 16px;
+  padding: 14px;
+  text-align: left;
+  background: rgba(15, 93, 63, 0.07);
+  color: inherit;
+  display: grid;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.my-page-debt-grid button span,
+.my-page-debt-grid button small {
+  color: var(--muted-text, #6b7280);
+  font-size: 0.78rem;
+}
+
+.my-page-split-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 14px;
+}
+
+.my-page-stat-list {
+  display: grid;
+  gap: 8px;
+}
+
+.my-page-stat-list div,
+.my-page-yakuman-row,
+.my-page-session-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(15, 93, 63, 0.09);
+}
+
+.my-page-stat-list div:last-child,
+.my-page-yakuman-row:last-child,
+.my-page-session-row:last-child {
+  border-bottom: 0;
+}
+
+.my-page-stat-list span,
+.my-page-yakuman-row small,
+.my-page-session-row small {
+  color: var(--muted-text, #6b7280);
+  font-size: 0.82rem;
+}
+
+.my-page-yakuman-row {
+  align-items: flex-start;
+}
+
+.my-page-yakuman-row span {
+  font-weight: 700;
+}
+
+.my-page-session-list {
+  display: grid;
+  gap: 2px;
+}
+
+.my-page-session-row {
+  width: 100%;
+  border-left: 4px solid rgba(15, 93, 63, 0.35);
+  border-right: 0;
+  border-top: 0;
+  background: transparent;
+  padding: 12px 10px 12px 14px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.my-page-session-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.my-page-shortcut-card-v55 span,
+.my-page-shortcut-tile-v55 span {
+  background: rgba(15, 93, 63, 0.12);
+}
+
+@media (max-width: 720px) {
+  .my-page-hero {
+    flex-direction: column;
+    padding: 16px;
+  }
+  .my-page-kpi-grid,
+  .my-page-debt-grid,
+  .my-page-split-grid {
+    grid-template-columns: 1fr;
+  }
+  .my-page-kpi strong {
+    font-size: 1.14rem;
+  }
+  .my-page-debt-grid button {
+    min-height: 72px;
+  }
+}

@@ -8368,3 +8368,442 @@ renderCreateSessionView = function() {
   renderCreateSessionViewBeforeV47();
   mountInlineCreateUpdatesV47();
 };
+
+/* v55: personal member page */
+let myPageDataV55 = {
+  groupId: "",
+  loading: false,
+  loaded: false,
+  error: "",
+  sessions: [],
+  hanchans: [],
+  results: [],
+  chips: [],
+  yakumans: [],
+  debts: []
+};
+let myPageLoadTokenV55 = 0;
+
+function resetMyPageDataV55(groupId = "") {
+  myPageDataV55 = {
+    groupId,
+    loading: false,
+    loaded: false,
+    error: "",
+    sessions: [],
+    hanchans: [],
+    results: [],
+    chips: [],
+    yakumans: [],
+    debts: []
+  };
+}
+
+function getSelfMemberV55() {
+  return activeGroupMembers.find((member) => member.user_id === currentSession?.user?.id) || null;
+}
+
+function buildSelfProfileV55() {
+  const self = getSelfMemberV55();
+  if (!self) return null;
+
+  const sessionMap = new Map((myPageDataV55.sessions || []).map((session) => [session.id, session]));
+  const hanchansBySession = new Map();
+  (myPageDataV55.hanchans || []).forEach((hanchan) => {
+    if (!hanchansBySession.has(hanchan.session_id)) hanchansBySession.set(hanchan.session_id, []);
+    hanchansBySession.get(hanchan.session_id).push(hanchan);
+  });
+  hanchansBySession.forEach((items) => items.sort((a, b) => num(a.sequence_no) - num(b.sequence_no)));
+
+  const resultsByHanchan = new Map();
+  (myPageDataV55.results || []).forEach((result) => {
+    if (!resultsByHanchan.has(result.hanchan_id)) resultsByHanchan.set(result.hanchan_id, []);
+    resultsByHanchan.get(result.hanchan_id).push(result);
+  });
+
+  const chipBySession = new Map();
+  (myPageDataV55.chips || [])
+    .filter((chip) => chip.member_id === self.id)
+    .forEach((chip) => chipBySession.set(chip.session_id, num(chip.chip_count)));
+
+  const hanchanToSession = new Map();
+  (myPageDataV55.hanchans || []).forEach((hanchan) => hanchanToSession.set(hanchan.id, hanchan.session_id));
+
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const stats = {
+    memberId: self.id,
+    displayName: self.display_name || "あなた",
+    totalPt: 0,
+    scorePt: 0,
+    chipCount: 0,
+    monthPt: 0,
+    sessions: 0,
+    hanchans: 0,
+    rankSum: 0,
+    firstCount: 0,
+    lastCount: 0,
+    bestSession: null,
+    worstSession: null,
+    history: [],
+    recentSessions: []
+  };
+
+  const orderedSessions = (myPageDataV55.sessions || []).slice().sort((a, b) => {
+    const byDate = String(a.session_date || "").localeCompare(String(b.session_date || ""));
+    return byDate || String(a.created_at || "").localeCompare(String(b.created_at || ""));
+  });
+
+  orderedSessions.forEach((session) => {
+    const sessionHanchans = hanchansBySession.get(session.id) || [];
+    let hanchanGameScore = 0;
+    let hanchanCount = 0;
+    let rankSum = 0;
+    let firstCount = 0;
+    let lastCount = 0;
+
+    sessionHanchans.forEach((hanchan) => {
+      const rows = resultsByHanchan.get(hanchan.id) || [];
+      const selfRow = rows.find((row) => row.member_id === self.id);
+      if (!selfRow) return;
+      hanchanGameScore = roundTo(hanchanGameScore + num(selfRow.total_points), 2);
+      hanchanCount += 1;
+      const rank = num(selfRow.rank);
+      const playerCount = rows.length || getModePreset(session.game_mode).playerCount;
+      rankSum += rank;
+      if (rank === 1) firstCount += 1;
+      if (rank === playerCount) lastCount += 1;
+    });
+
+    if (!hanchanCount && !chipBySession.has(session.id)) return;
+
+    const multiplier = num(session.rate_multiplier || 30);
+    const chipCount = num(chipBySession.get(session.id));
+    const chipPt = roundTo(chipCount * num(session.chip_value) * multiplier, 2);
+    const scorePt = roundTo(hanchanGameScore * multiplier, 2);
+    const totalPt = roundTo(scorePt + chipPt, 2);
+    const item = {
+      sessionId: session.id,
+      label: formatDate(session.session_date),
+      date: session.session_date,
+      mode: session.game_mode,
+      rateLabel: session.rate_label,
+      multiplier,
+      totalPt,
+      scorePt,
+      chipCount,
+      hanchans: hanchanCount,
+      averageRank: hanchanCount ? roundTo(rankSum / hanchanCount, 2) : null
+    };
+
+    stats.sessions += 1;
+    stats.hanchans += hanchanCount;
+    stats.rankSum += rankSum;
+    stats.firstCount += firstCount;
+    stats.lastCount += lastCount;
+    stats.totalPt = roundTo(stats.totalPt + totalPt, 2);
+    stats.scorePt = roundTo(stats.scorePt + scorePt, 2);
+    stats.chipCount = roundOne(stats.chipCount + chipCount);
+    if (String(session.session_date || "").startsWith(thisMonth)) stats.monthPt = roundTo(stats.monthPt + totalPt, 2);
+    item.cumulativeTotal = stats.totalPt;
+    item.cumulativeScore = stats.scorePt;
+    item.cumulativeChip = stats.chipCount;
+    stats.history.push(item);
+    stats.recentSessions.push(item);
+    if (!stats.bestSession || totalPt > stats.bestSession.totalPt) stats.bestSession = item;
+    if (!stats.worstSession || totalPt < stats.worstSession.totalPt) stats.worstSession = item;
+  });
+
+  stats.averageRank = stats.hanchans ? roundTo(stats.rankSum / stats.hanchans, 2) : null;
+  stats.firstRate = stats.hanchans ? roundTo((stats.firstCount / stats.hanchans) * 100, 1) : null;
+  stats.lastRate = stats.hanchans ? roundTo((stats.lastCount / stats.hanchans) * 100, 1) : null;
+  stats.recentSessions = stats.recentSessions.slice().reverse().slice(0, 6);
+
+  const yakumans = (myPageDataV55.yakumans || [])
+    .filter((record) => record.winner_member_id === self.id)
+    .map((record) => {
+      const session = sessionMap.get(hanchanToSession.get(record.hanchan_id));
+      return {
+        ...record,
+        sessionDate: session?.session_date || "",
+        mode: session?.game_mode || "",
+        rateLabel: session?.rate_label || ""
+      };
+    })
+    .sort((a, b) => String(b.created_at || b.sessionDate || "").localeCompare(String(a.created_at || a.sessionDate || "")));
+
+  const openDebts = (myPageDataV55.debts || []).filter((record) => record.status === "open" && num(record.remaining_amount_pt) > 0.004);
+  const payDebts = openDebts.filter((record) => record.debtor_member_id === self.id);
+  const receiveDebts = openDebts.filter((record) => record.creditor_member_id === self.id);
+  const payTotal = roundTo(payDebts.reduce((sum, record) => sum + num(record.remaining_amount_pt), 0), 2);
+  const receiveTotal = roundTo(receiveDebts.reduce((sum, record) => sum + num(record.remaining_amount_pt), 0), 2);
+
+  return {
+    self,
+    stats,
+    yakumans,
+    debt: {
+      payDebts,
+      receiveDebts,
+      payTotal,
+      receiveTotal,
+      net: roundTo(receiveTotal - payTotal, 2)
+    }
+  };
+}
+
+function renderMyPageV55() {
+  const page = getPageWorkspace();
+  heroCard.hidden = true;
+  roadmapSection.hidden = true;
+  getGroupWorkspace().hidden = true;
+  page.hidden = false;
+  setPrimaryNavActiveV34("home");
+
+  if (!currentSession || !activeGroupId) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MY PAGE</p><h2>ログインが必要です</h2><p class="workspace-description">ログインしてグループに参加すると、自分専用ページを表示できます。</p></section>`;
+    return;
+  }
+
+  if (myPageDataV55.loading) {
+    page.innerHTML = `<section class="workspace-card loading-card">マイページを読み込み中...</section>`;
+    return;
+  }
+
+  if (myPageDataV55.error) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MY PAGE</p><h2>マイページを読み込めませんでした</h2><p class="workspace-description">${escapeHtml(myPageDataV55.error)}</p><button type="button" class="primary-button" data-v55-retry-my-page>再読み込み</button></section>`;
+    page.querySelector("[data-v55-retry-my-page]")?.addEventListener("click", () => void loadMyPageDataV55(true));
+    return;
+  }
+
+  const profile = buildSelfProfileV55();
+  if (!profile) {
+    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">MY PAGE</p><h2>メンバー情報が見つかりません</h2><p class="workspace-description">このグループのメンバーとして参加できているか確認してください。</p></section>`;
+    return;
+  }
+
+  const { stats, debt, yakumans } = profile;
+  const monthLabel = new Date().toISOString().slice(0, 7).replace("-", "年") + "月";
+  const trend = stats.history.length ? buildTrendSvg(stats.history, "total") : `<p class="ranking-note">精算済みの対局が増えると、自分の累積pt推移が表示されます。</p>`;
+  const recentRows = stats.recentSessions.length ? stats.recentSessions.map((item) => `
+    <button type="button" class="my-page-session-row" data-v55-open-session="${item.sessionId}">
+      <span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(getModeLabel(item.mode))} ／ ${escapeHtml(item.rateLabel || "レート未設定")} ／ ${item.hanchans}半荘</small></span>
+      <b class="${signedClass(item.totalPt)}">${formatPtPlain(item.totalPt)}</b>
+    </button>
+  `).join("") : `<p class="ranking-note">まだ精算済みの対局がありません。</p>`;
+
+  const yakumanRows = yakumans.length ? yakumans.slice(0, 6).map((item) => `
+    <div class="my-page-yakuman-row"><span>${escapeHtml(item.yakuman_name || "役満")}</span><small>${escapeHtml(item.sessionDate ? formatDate(item.sessionDate) : "日付不明")} ／ ${escapeHtml(item.win_type || "")}</small></div>
+  `).join("") : `<p class="ranking-note">役満記録はまだありません。</p>`;
+
+  page.innerHTML = `
+    <section class="my-page-card">
+      <header class="my-page-hero">
+        <div><p class="eyebrow">MY PAGE</p><h2>${escapeHtml(stats.displayName)}の個人成績</h2><p>自分の戦績、未精算借pt、最近の対局をまとめています。</p></div>
+        <button type="button" class="secondary-button" data-v55-my-page-refresh>更新</button>
+      </header>
+
+      <section class="my-page-kpi-grid">
+        <div class="my-page-kpi main"><span>累計pt</span><strong>${formatPtMarkup(stats.totalPt)}</strong><small>チップ込み・場代除外</small></div>
+        <div class="my-page-kpi"><span>${escapeHtml(monthLabel)}</span><strong>${formatPtMarkup(stats.monthPt)}</strong><small>今月の総合pt</small></div>
+        <div class="my-page-kpi"><span>平均順位</span><strong>${stats.averageRank ?? "-"}</strong><small>${stats.hanchans}半荘</small></div>
+        <div class="my-page-kpi"><span>1位率 / ラス率</span><strong>${stats.firstRate !== null ? `${stats.firstRate}%` : "-"} / ${stats.lastRate !== null ? `${stats.lastRate}%` : "-"}</strong><small>半荘単位</small></div>
+      </section>
+
+      <section class="my-page-debt-panel">
+        <div><p class="eyebrow">OPEN BALANCE</p><h3>自分の未精算借pt</h3></div>
+        <div class="my-page-debt-grid">
+          <button type="button" data-v55-go-debt><span>支払う</span><strong>${formatPtPlain(debt.payTotal)}</strong><small>${debt.payDebts.length}件</small></button>
+          <button type="button" data-v55-go-debt><span>受け取る</span><strong>${formatPtPlain(debt.receiveTotal)}</strong><small>${debt.receiveDebts.length}件</small></button>
+          <button type="button" data-v55-go-debt><span>差額</span><strong class="${signedClass(debt.net)}">${formatPtPlain(debt.net)}</strong><small>＋なら受け取り超過</small></button>
+        </div>
+      </section>
+
+      <section class="game-section my-page-chart-section">
+        <div class="game-section-heading"><div><p class="game-section-title">自分の累積pt推移</p><p class="game-section-note">日次精算ごとの総合pt。場代は含めません。</p></div></div>
+        <div class="trend-chart-wrap">${trend}</div>
+      </section>
+
+      <section class="my-page-split-grid">
+        <article class="game-section"><p class="game-section-title">成績内訳</p><div class="my-page-stat-list">
+          <div><span>対局数</span><strong>${stats.sessions}日</strong></div>
+          <div><span>半荘数</span><strong>${stats.hanchans}半荘</strong></div>
+          <div><span>素点pt</span><strong>${formatPtMarkup(stats.scorePt)}</strong></div>
+          <div><span>チップ</span><strong>${formatChipMarkup(stats.chipCount)}</strong></div>
+          <div><span>最高日次pt</span><strong>${stats.bestSession ? formatPtMarkup(stats.bestSession.totalPt) : "-"}</strong></div>
+          <div><span>最低日次pt</span><strong>${stats.worstSession ? formatPtMarkup(stats.worstSession.totalPt) : "-"}</strong></div>
+        </div></article>
+        <article class="game-section"><p class="game-section-title">役満記録</p><div class="my-page-yakuman-list">${yakumanRows}</div></article>
+      </section>
+
+      <section class="game-section"><div class="game-section-heading"><p class="game-section-title">最近の自分の対局</p><button type="button" class="secondary-button" data-v55-go-history>履歴へ</button></div><div class="my-page-session-list">${recentRows}</div></section>
+    </section>
+  `;
+
+  mountViewContextV34("home", "マイページ", "自分の成績と未精算状況");
+  page.querySelector("[data-v55-my-page-refresh]")?.addEventListener("click", () => void loadMyPageDataV55(true));
+  page.querySelectorAll("[data-v55-go-debt]").forEach((button) => button.addEventListener("click", () => void openNavigationFeatureV34("debt-manage")));
+  page.querySelector("[data-v55-go-history]")?.addEventListener("click", () => void openNavigationFeatureV34("history"));
+  page.querySelectorAll("[data-v55-open-session]").forEach((button) => button.addEventListener("click", async () => {
+    activeMatchSessionId = button.dataset.v55OpenSession;
+    localStorage.setItem("jakuroku-active-match-session-id", activeMatchSessionId);
+    await openNavigationFeatureV34("game-session");
+  }));
+}
+
+async function loadMyPageDataV55(force = false) {
+  if (!currentSession || !activeGroupId) {
+    renderMyPageV55();
+    return;
+  }
+  const groupId = activeGroupId;
+  if (myPageDataV55.groupId !== groupId) resetMyPageDataV55(groupId);
+  if (myPageDataV55.loaded && !force) {
+    renderMyPageV55();
+    return;
+  }
+  const token = ++myPageLoadTokenV55;
+  myPageDataV55.loading = true;
+  myPageDataV55.error = "";
+  renderMyPageV55();
+
+  try {
+    if (!activeGroupMembers.length) await loadActiveGroupMembers();
+    const self = getSelfMemberV55();
+    if (!self) throw new Error("このグループのメンバー情報が見つかりません。");
+
+    const [sessionsResponse, debtsResponse] = await Promise.all([
+      supabaseClient
+        .from("match_sessions")
+        .select("id, session_date, game_mode, rate_label, rate_multiplier, chip_value, status, created_at")
+        .eq("group_id", groupId)
+        .is("deleted_at", null)
+        .eq("status", "settled")
+        .order("session_date", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabaseClient
+        .from("debt_records")
+        .select("id, debtor_member_id, creditor_member_id, original_amount_pt, remaining_amount_pt, status, memo, due_date, created_at, updated_at")
+        .eq("group_id", groupId)
+        .eq("status", "open")
+    ]);
+    if (sessionsResponse.error) throw sessionsResponse.error;
+    if (debtsResponse.error) throw debtsResponse.error;
+    if (token !== myPageLoadTokenV55 || activeGroupId !== groupId) return;
+
+    const sessions = sessionsResponse.data || [];
+    const sessionIds = sessions.map((session) => session.id);
+    let hanchans = [];
+    let results = [];
+    let chips = [];
+    let yakumans = [];
+
+    if (sessionIds.length) {
+      const [hanchansResponse, chipsResponse] = await Promise.all([
+        supabaseClient
+          .from("match_hanchans")
+          .select("id, session_id, sequence_no")
+          .in("session_id", sessionIds),
+        supabaseClient
+          .from("match_session_chips")
+          .select("session_id, member_id, chip_count")
+          .in("session_id", sessionIds)
+      ]);
+      if (hanchansResponse.error) throw hanchansResponse.error;
+      if (chipsResponse.error) throw chipsResponse.error;
+      hanchans = hanchansResponse.data || [];
+      chips = chipsResponse.data || [];
+      const hanchanIds = hanchans.map((hanchan) => hanchan.id);
+      if (hanchanIds.length) {
+        const [resultsResponse, yakumanResponse] = await Promise.all([
+          supabaseClient
+            .from("match_hanchan_results")
+            .select("hanchan_id, member_id, rank, total_points, score_points, uma_points, tobi_points")
+            .in("hanchan_id", hanchanIds),
+          supabaseClient
+            .from("match_yakuman_records")
+            .select("hanchan_id, winner_member_id, yakuman_name, win_type, created_at")
+            .in("hanchan_id", hanchanIds)
+        ]);
+        if (resultsResponse.error) throw resultsResponse.error;
+        if (yakumanResponse.error) throw yakumanResponse.error;
+        results = resultsResponse.data || [];
+        yakumans = yakumanResponse.data || [];
+      }
+    }
+
+    if (token !== myPageLoadTokenV55 || activeGroupId !== groupId) return;
+    myPageDataV55 = {
+      groupId,
+      loading: false,
+      loaded: true,
+      error: "",
+      sessions,
+      hanchans,
+      results,
+      chips,
+      yakumans,
+      debts: debtsResponse.data || []
+    };
+  } catch (error) {
+    if (token !== myPageLoadTokenV55 || activeGroupId !== groupId) return;
+    myPageDataV55.loading = false;
+    myPageDataV55.loaded = false;
+    myPageDataV55.error = error?.message || "通信状態を確認してください。";
+  }
+
+  renderMyPageV55();
+}
+
+function mountMyPageShortcutsV55() {
+  const homeGrid = document.querySelector(".home-action-grid");
+  if (homeGrid && !homeGrid.querySelector("[data-v55-open-my-page]")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "home-action-card my-page-shortcut-card-v55";
+    button.dataset.v55OpenMyPage = "1";
+    button.innerHTML = `<span>私</span><strong>マイページ</strong><small>自分の成績・借ptを見る</small>`;
+    homeGrid.insertBefore(button, homeGrid.children[1] || null);
+  }
+  const analyticsGrid = document.querySelector(".v41-analytics-dashboard .v41-dashboard-grid");
+  if (analyticsGrid && !analyticsGrid.querySelector("[data-v55-open-my-page]")) {
+    analyticsGrid.insertAdjacentHTML("afterbegin", `<button type="button" class="v41-dashboard-tile my-page-shortcut-tile-v55" data-v55-open-my-page><span>私</span><strong>マイページ</strong><small>自分の累計pt・借pt・最近の対局</small></button>`);
+  }
+  document.querySelectorAll("[data-v55-open-my-page]").forEach((button) => {
+    if (button.dataset.v55Bound === "1") return;
+    button.dataset.v55Bound = "1";
+    button.addEventListener("click", () => void openNavigationFeatureV34("my-page"));
+  });
+}
+
+const openNavigationFeatureBeforeV55 = openNavigationFeatureV34;
+openNavigationFeatureV34 = async function(feature) {
+  if (feature === "my-page") {
+    navigationHubV34 = "home";
+    settingsFocusV34 = "";
+    currentTab = "my-page";
+    setPrimaryNavActiveV34("home");
+    await loadMyPageDataV55(true);
+    window.scrollTo(0, 0);
+    return;
+  }
+  return openNavigationFeatureBeforeV55(feature);
+};
+
+const renderHomeDashboardBeforeV55 = renderHomeDashboardV35;
+renderHomeDashboardV35 = function() {
+  renderHomeDashboardBeforeV55();
+  mountMyPageShortcutsV55();
+};
+
+const renderNavigationHubBeforeV55 = renderNavigationHubV34;
+renderNavigationHubV34 = function(area) {
+  const result = renderNavigationHubBeforeV55(area);
+  if (area === "analytics") mountMyPageShortcutsV55();
+  return result;
+};
+
+const updateAuthUIBeforeV55 = updateAuthUI;
+updateAuthUI = async function(session) {
+  if (!session) resetMyPageDataV55();
+  await updateAuthUIBeforeV55(session);
+};
