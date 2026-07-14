@@ -9695,3 +9695,392 @@ if (typeof getV63Actions === "function") {
   };
 }
 scheduleV64Ui();
+
+
+/* v65: Moriken Rating - Elo based player strength indicator */
+const V65_RATING_INITIAL = 1500;
+const V65_RATING_K = 28;
+const V65_RATING_SCORE_WEIGHT = 0.15;
+const V65_RATING_SCORE_CAP = 6;
+let ratingSelectedMemberIdV65 = "";
+
+function clampV65(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function formatV65Rating(value) {
+  return formatNumber(Math.round(num(value)), 0);
+}
+function formatV65RatingDelta(value) {
+  const rounded = Math.round(num(value));
+  return `${rounded > 0 ? "+" : ""}${formatNumber(rounded, 0)}`;
+}
+function ratingDeltaClassV65(value) {
+  const v = Math.round(num(value));
+  return v > 0 ? "positive" : v < 0 ? "negative" : "zero";
+}
+function getV65RatingTitle(value) {
+  const rating = Math.round(num(value));
+  if (rating >= 1900) return "森研最強位";
+  if (rating >= 1800) return "雀聖";
+  if (rating >= 1700) return "雀豪";
+  if (rating >= 1600) return "強者";
+  if (rating >= 1500) return "森研雀士";
+  if (rating >= 1400) return "一般雀士";
+  if (rating >= 1300) return "初級雀士";
+  return "雀士見習い";
+}
+function getV65MemberName(memberId) {
+  return getMemberName(memberId) || getRankingMemberName?.(memberId) || "不明なメンバー";
+}
+function getV65CurrentMonthKey() {
+  return new Date().toISOString().slice(0, 7);
+}
+function normalizeV65RatingSource(source) {
+  const sessions = (source?.sessions || []).slice();
+  const hanchans = (source?.hanchans || []).slice();
+  const results = (source?.results || []).slice();
+  const sessionById = new Map(sessions.map((session) => [session.id, session]));
+  const resultsByHanchan = new Map();
+  results.forEach((result) => {
+    if (!resultsByHanchan.has(result.hanchan_id)) resultsByHanchan.set(result.hanchan_id, []);
+    resultsByHanchan.get(result.hanchan_id).push(result);
+  });
+  const orderedHanchans = hanchans
+    .filter((hanchan) => sessionById.has(hanchan.session_id))
+    .sort((a, b) => {
+      const sessionA = sessionById.get(a.session_id) || {};
+      const sessionB = sessionById.get(b.session_id) || {};
+      const byDate = String(sessionA.session_date || "").localeCompare(String(sessionB.session_date || ""));
+      if (byDate) return byDate;
+      const byCreated = String(sessionA.created_at || "").localeCompare(String(sessionB.created_at || ""));
+      if (byCreated) return byCreated;
+      return num(a.sequence_no) - num(b.sequence_no);
+    });
+  return { sessions, hanchans: orderedHanchans, resultsByHanchan, sessionById };
+}
+function buildV65RatingDatasetFrom(source, options = {}) {
+  const { sessions, hanchans, resultsByHanchan, sessionById } = normalizeV65RatingSource(source);
+  const monthKey = options.monthKey || getV65CurrentMonthKey();
+  const ratings = new Map();
+  const entries = new Map();
+  const hanchanEvents = [];
+  const latestSessionId = hanchans.length ? hanchans[hanchans.length - 1]?.session_id : "";
+
+  const ensureEntry = (memberId) => {
+    if (!entries.has(memberId)) {
+      entries.set(memberId, {
+        memberId,
+        displayName: getV65MemberName(memberId),
+        rating: V65_RATING_INITIAL,
+        totalDelta: 0,
+        monthDelta: 0,
+        latestSessionDelta: 0,
+        hanchans: 0,
+        rankSum: 0,
+        firstCount: 0,
+        lastCount: 0,
+        highestRating: V65_RATING_INITIAL,
+        lowestRating: V65_RATING_INITIAL,
+        history: [],
+        recent: []
+      });
+    }
+    if (!ratings.has(memberId)) ratings.set(memberId, V65_RATING_INITIAL);
+    return entries.get(memberId);
+  };
+
+  (activeGroupMembers || []).forEach((member) => {
+    if (member?.id) ensureEntry(member.id);
+  });
+
+  hanchans.forEach((hanchan) => {
+    const session = sessionById.get(hanchan.session_id) || {};
+    const rows = (resultsByHanchan.get(hanchan.id) || [])
+      .filter((row) => row.member_id)
+      .map((row) => ({
+        ...row,
+        rank: num(row.rank),
+        total: num(row.total_points)
+      }));
+    if (rows.length < 2) return;
+    rows.forEach((row) => ensureEntry(row.member_id));
+
+    const before = new Map(rows.map((row) => [row.member_id, num(ratings.get(row.member_id) ?? V65_RATING_INITIAL)]));
+    const delta = new Map(rows.map((row) => [row.member_id, 0]));
+    const pairK = V65_RATING_K / Math.max(1, rows.length - 1);
+
+    for (let i = 0; i < rows.length; i += 1) {
+      for (let j = i + 1; j < rows.length; j += 1) {
+        const a = rows[i];
+        const b = rows[j];
+        let actualA = 0.5;
+        if (a.rank < b.rank) actualA = 1;
+        else if (a.rank > b.rank) actualA = 0;
+        const ratingA = before.get(a.member_id);
+        const ratingB = before.get(b.member_id);
+        const expectedA = 1 / (1 + (10 ** ((ratingB - ratingA) / 400)));
+        const expectedB = 1 - expectedA;
+        delta.set(a.member_id, num(delta.get(a.member_id)) + pairK * (actualA - expectedA));
+        delta.set(b.member_id, num(delta.get(b.member_id)) + pairK * ((1 - actualA) - expectedB));
+      }
+    }
+
+    rows.forEach((row) => {
+      const compensation = clampV65(row.total * V65_RATING_SCORE_WEIGHT, -V65_RATING_SCORE_CAP, V65_RATING_SCORE_CAP);
+      delta.set(row.member_id, num(delta.get(row.member_id)) + compensation);
+    });
+
+    const playerCount = rows.length;
+    const dateKey = String(session.session_date || "");
+    rows.forEach((row) => {
+      const entry = ensureEntry(row.member_id);
+      const beforeRating = num(before.get(row.member_id));
+      const change = roundTo(num(delta.get(row.member_id)), 2);
+      const afterRating = roundTo(beforeRating + change, 2);
+      ratings.set(row.member_id, afterRating);
+      entry.rating = afterRating;
+      entry.totalDelta = roundTo(afterRating - V65_RATING_INITIAL, 2);
+      if (dateKey.startsWith(monthKey)) entry.monthDelta = roundTo(entry.monthDelta + change, 2);
+      if (latestSessionId && hanchan.session_id === latestSessionId) entry.latestSessionDelta = roundTo(entry.latestSessionDelta + change, 2);
+      entry.hanchans += 1;
+      entry.rankSum += row.rank;
+      if (row.rank === 1) entry.firstCount += 1;
+      if (row.rank === playerCount) entry.lastCount += 1;
+      entry.highestRating = Math.max(entry.highestRating, afterRating);
+      entry.lowestRating = Math.min(entry.lowestRating, afterRating);
+      const event = {
+        memberId: row.member_id,
+        displayName: entry.displayName,
+        sessionId: hanchan.session_id,
+        hanchanId: hanchan.id,
+        sequenceNo: num(hanchan.sequence_no),
+        date: session.session_date || "",
+        label: `${formatDate(session.session_date)} 第${num(hanchan.sequence_no)}半荘`,
+        rank: row.rank,
+        total: row.total,
+        beforeRating,
+        afterRating,
+        delta: change
+      };
+      entry.history.push(event);
+      entry.recent.push(event);
+      hanchanEvents.push(event);
+    });
+  });
+
+  const playedEntries = [...entries.values()]
+    .filter((entry) => entry.hanchans > 0)
+    .map((entry) => ({
+      ...entry,
+      rating: roundTo(entry.rating, 2),
+      totalDelta: roundTo(entry.totalDelta, 2),
+      monthDelta: roundTo(entry.monthDelta, 2),
+      latestSessionDelta: roundTo(entry.latestSessionDelta, 2),
+      highestRating: roundTo(entry.highestRating, 2),
+      lowestRating: roundTo(entry.lowestRating, 2),
+      averageRank: entry.hanchans ? roundTo(entry.rankSum / entry.hanchans, 2) : null,
+      firstRate: entry.hanchans ? roundTo((entry.firstCount / entry.hanchans) * 100, 1) : null,
+      lastRate: entry.hanchans ? roundTo((entry.lastCount / entry.hanchans) * 100, 1) : null,
+      recent: entry.recent.slice(-5).reverse()
+    }))
+    .sort((a, b) => b.rating - a.rating || b.hanchans - a.hanchans || a.displayName.localeCompare(b.displayName, "ja"));
+
+  const latestSession = latestSessionId ? sessionById.get(latestSessionId) : null;
+  return {
+    entries: playedEntries,
+    hanchanCount: hanchanEvents.length,
+    sessionCount: sessions.length,
+    latestSessionId,
+    latestSessionDate: latestSession?.session_date || "",
+    monthKey,
+    events: hanchanEvents
+  };
+}
+function buildV65RatingDataset() {
+  return buildV65RatingDatasetFrom({
+    sessions: rankingRaw.sessions || [],
+    hanchans: rankingRaw.hanchans || [],
+    results: rankingRaw.results || []
+  });
+}
+function buildV65RatingTrendSvg(history) {
+  const values = [V65_RATING_INITIAL, ...(history || []).map((item) => num(item.afterRating))];
+  if (values.length <= 1) return `<p class="ranking-note">半荘を登録するとRating推移が表示されます。</p>`;
+  const width = Math.max(620, 110 + (values.length - 1) * 58);
+  const height = 220;
+  const padX = 36;
+  const padY = 24;
+  const usableWidth = width - padX * 2;
+  const usableHeight = height - padY * 2;
+  const min = Math.min(...values, V65_RATING_INITIAL - 20);
+  const max = Math.max(...values, V65_RATING_INITIAL + 20);
+  const range = max - min || 1;
+  const x = (index) => padX + (values.length <= 1 ? usableWidth / 2 : (usableWidth * index) / (values.length - 1));
+  const y = (value) => padY + ((max - value) / range) * usableHeight;
+  const points = values.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+  const labelInterval = Math.max(1, Math.ceil((values.length - 1) / 8));
+  const labels = (history || []).map((item, index) => ((index === 0 || index === history.length - 1 || (index + 1) % labelInterval === 0)
+    ? `<text x="${x(index + 1).toFixed(1)}" y="${height - 8}" text-anchor="middle" class="trend-label">${escapeHtml(String(item.sequenceNo || index + 1))}</text>`
+    : "")).join("");
+  const circles = values.map((value, index) => `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${index === 0 ? 3 : 4}" class="trend-point"></circle>`).join("");
+  return `<svg class="trend-svg rating-trend-svg-v65" viewBox="0 0 ${width} ${height}" role="img" aria-label="Rating推移"><line x1="${padX}" x2="${width - padX}" y1="${y(V65_RATING_INITIAL).toFixed(1)}" y2="${y(V65_RATING_INITIAL).toFixed(1)}" class="trend-zero"></line><polyline points="${points}" class="trend-line"></polyline>${circles}${labels}<text x="${padX}" y="${padY - 6}" class="trend-scale">${formatV65Rating(max)}</text><text x="${padX}" y="${height - padY + 14}" class="trend-scale">${formatV65Rating(min)}</text></svg>`;
+}
+function renderV65RatingRows(entries) {
+  return entries.map((entry, index) => `
+    <button type="button" class="v65-rating-row ${entry.memberId === ratingSelectedMemberIdV65 ? "selected" : ""}" data-v65-rating-member-id="${entry.memberId}">
+      <span class="v65-rating-place">${index + 1}</span>
+      <div class="v65-rating-player"><strong>${escapeHtml(entry.displayName)}</strong><small>${escapeHtml(getV65RatingTitle(entry.rating))} ／ ${entry.hanchans}半荘 ／ 平均順位 ${entry.averageRank ?? "-"}</small></div>
+      <div class="v65-rating-main"><strong>${formatV65Rating(entry.rating)}</strong><small class="${ratingDeltaClassV65(entry.monthDelta)}">今月 ${formatV65RatingDelta(entry.monthDelta)}</small></div>
+    </button>
+  `).join("");
+}
+function renderV65RatingDetail(entry) {
+  if (!entry) return "";
+  const recentRows = entry.recent.length ? entry.recent.map((item) => `<div class="v65-rating-recent-row"><span>${escapeHtml(item.label)}</span><strong class="${ratingDeltaClassV65(item.delta)}">${formatV65RatingDelta(item.delta)}</strong></div>`).join("") : `<p class="ranking-note">直近のRating変動はまだありません。</p>`;
+  return `<article class="v65-rating-detail">
+    <div class="v65-rating-detail-head">
+      <div><p class="eyebrow">PLAYER RATING</p><h3>${escapeHtml(entry.displayName)}</h3><small>${escapeHtml(getV65RatingTitle(entry.rating))}</small></div>
+      <strong>${formatV65Rating(entry.rating)}</strong>
+    </div>
+    <div class="v65-rating-stat-grid">
+      <div><span>通算変動</span><strong class="${ratingDeltaClassV65(entry.totalDelta)}">${formatV65RatingDelta(entry.totalDelta)}</strong></div>
+      <div><span>今月変動</span><strong class="${ratingDeltaClassV65(entry.monthDelta)}">${formatV65RatingDelta(entry.monthDelta)}</strong></div>
+      <div><span>最高Rating</span><strong>${formatV65Rating(entry.highestRating)}</strong></div>
+      <div><span>最低Rating</span><strong>${formatV65Rating(entry.lowestRating)}</strong></div>
+      <div><span>トップ率</span><strong>${entry.firstRate !== null ? `${entry.firstRate}%` : "-"}</strong></div>
+      <div><span>ラス率</span><strong>${entry.lastRate !== null ? `${entry.lastRate}%` : "-"}</strong></div>
+    </div>
+    <div class="trend-chart-wrap v65-rating-trend-wrap">${buildV65RatingTrendSvg(entry.history)}</div>
+    <div class="v65-rating-recent-list"><div class="v65-mini-heading"><strong>直近5半荘の変動</strong><small>順位Elo＋収支補正</small></div>${recentRows}</div>
+  </article>`;
+}
+function renderV65RatingSectionMarkup() {
+  const data = buildV65RatingDataset();
+  if (!data.entries.length) return "";
+  if (!data.entries.some((entry) => entry.memberId === ratingSelectedMemberIdV65)) ratingSelectedMemberIdV65 = data.entries[0]?.memberId || "";
+  const selected = data.entries.find((entry) => entry.memberId === ratingSelectedMemberIdV65) || data.entries[0];
+  const top = data.entries[0];
+  const latestRows = data.entries
+    .filter((entry) => Math.abs(num(entry.latestSessionDelta)) > 0.004)
+    .sort((a, b) => b.latestSessionDelta - a.latestSessionDelta)
+    .slice(0, 4)
+    .map((entry) => `<span><b>${escapeHtml(entry.displayName)}</b><strong class="${ratingDeltaClassV65(entry.latestSessionDelta)}">${formatV65RatingDelta(entry.latestSessionDelta)}</strong></span>`)
+    .join("");
+  return `<section class="game-section rating-section-v65" id="morikenRatingSection">
+    <div class="game-section-heading">
+      <div>
+        <p class="game-section-title">森研Rating</p>
+        <p class="game-section-note">順位Eloを基準に、半荘収支を±6まで補正します。場代・借pt・レート倍率・チップは除外します。</p>
+      </div>
+      <span class="section-side-note">K=28 / 初期1500</span>
+    </div>
+    <div class="v65-rating-summary">
+      <article><span>現在1位</span><strong>${escapeHtml(top.displayName)} ${formatV65Rating(top.rating)}</strong><small>${escapeHtml(getV65RatingTitle(top.rating))}</small></article>
+      <article><span>対象</span><strong>${data.sessionCount}日・${data.hanchanCount}半荘</strong><small>精算済み対局から再計算</small></article>
+      <article><span>直近日次変動</span><strong>${data.latestSessionDate ? escapeHtml(formatDate(data.latestSessionDate)) : "-"}</strong><small>半荘追加・編集で自動更新</small></article>
+    </div>
+    ${latestRows ? `<div class="v65-latest-delta-strip">${latestRows}</div>` : ""}
+    <div class="v65-rating-layout">
+      <div class="v65-rating-ranking">${renderV65RatingRows(data.entries)}</div>
+      ${renderV65RatingDetail(selected)}
+    </div>
+  </section>`;
+}
+function bindV65RatingSection() {
+  document.querySelectorAll("[data-v65-rating-member-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ratingSelectedMemberIdV65 = button.dataset.v65RatingMemberId;
+      const section = document.querySelector(".rating-section-v65");
+      if (section) {
+        section.outerHTML = renderV65RatingSectionMarkup();
+        bindV65RatingSection();
+        requestAnimationFrame(() => document.querySelector(".rating-section-v65")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      }
+    });
+  });
+}
+function mountV65RatingSection() {
+  const page = getPageWorkspace?.();
+  if (!page || currentTab !== "ranking") return;
+  page.querySelector(".rating-section-v65")?.remove();
+  const markup = renderV65RatingSectionMarkup();
+  if (!markup) return;
+  const anchor = page.querySelector(".monthly-title-section-v64") || page.querySelector(".ranking-control-panel");
+  if (anchor) anchor.insertAdjacentHTML("afterend", markup);
+  else page.insertAdjacentHTML("beforeend", markup);
+  bindV65RatingSection();
+}
+function mountV65MyPageRating() {
+  const page = getPageWorkspace?.();
+  if (!page || currentTab !== "my-page" || !myPageDataV55?.loaded || myPageDataV55?.loading) return;
+  page.querySelector(".my-page-rating-section-v65")?.remove();
+  const self = getSelfMemberV55?.();
+  if (!self) return;
+  const data = buildV65RatingDatasetFrom({
+    sessions: myPageDataV55.sessions || [],
+    hanchans: myPageDataV55.hanchans || [],
+    results: myPageDataV55.results || []
+  });
+  const entry = data.entries.find((item) => item.memberId === self.id);
+  if (!entry) return;
+  const rankingIndex = data.entries.findIndex((item) => item.memberId === self.id);
+  const recentRows = entry.recent.length ? entry.recent.map((item) => `<div class="v65-rating-recent-row"><span>${escapeHtml(item.label)}</span><strong class="${ratingDeltaClassV65(item.delta)}">${formatV65RatingDelta(item.delta)}</strong></div>`).join("") : `<p class="ranking-note">直近のRating変動はまだありません。</p>`;
+  const markup = `<section class="v41-recent-section my-page-section-v57 my-page-rating-section-v65">
+    <div class="v41-section-heading"><div><p class="eyebrow">MORIKEN RATING</p><h3>自分の森研Rating</h3></div><button type="button" data-v65-go-rating>全体を見る</button></div>
+    <div class="v65-my-rating-hero">
+      <div><span>現在Rating</span><strong>${formatV65Rating(entry.rating)}</strong><small>${rankingIndex >= 0 ? `${rankingIndex + 1}位 ／ ` : ""}${escapeHtml(getV65RatingTitle(entry.rating))}</small></div>
+      <div><span>今月変動</span><strong class="${ratingDeltaClassV65(entry.monthDelta)}">${formatV65RatingDelta(entry.monthDelta)}</strong><small>半荘ごとに自動再計算</small></div>
+      <div><span>最高 / 最低</span><strong>${formatV65Rating(entry.highestRating)} / ${formatV65Rating(entry.lowestRating)}</strong><small>通算Rating幅</small></div>
+    </div>
+    <div class="trend-chart-wrap v65-rating-trend-wrap">${buildV65RatingTrendSvg(entry.history)}</div>
+    <div class="v65-rating-recent-list"><div class="v65-mini-heading"><strong>直近5半荘</strong><small>Rating変動</small></div>${recentRows}</div>
+  </section>`;
+  const anchor = page.querySelector(".my-page-kpi-grid") || page.querySelector(".my-page-debt-panel") || page.querySelector(".my-page-card");
+  if (anchor) anchor.insertAdjacentHTML("afterend", markup);
+  page.querySelector("[data-v65-go-rating]")?.addEventListener("click", async () => {
+    await openNavigationFeatureV34("ranking");
+    requestAnimationFrame(() => document.querySelector(".rating-section-v65")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  });
+}
+function scheduleV65Ui() {
+  requestAnimationFrame(() => {
+    mountV65RatingSection();
+    mountV65MyPageRating();
+  });
+}
+
+const renderRankingPageBeforeV65 = renderRankingPage;
+renderRankingPage = function(...args) {
+  const result = renderRankingPageBeforeV65.apply(this, args);
+  scheduleV65Ui();
+  return result;
+};
+if (typeof renderMyPageV55 === "function") {
+  const renderMyPageBeforeV65 = renderMyPageV55;
+  renderMyPageV55 = function(...args) {
+    const result = renderMyPageBeforeV65.apply(this, args);
+    scheduleV65Ui();
+    return result;
+  };
+}
+const switchTabBeforeV65 = switchTab;
+switchTab = async function(tab) {
+  const result = await switchTabBeforeV65(tab);
+  scheduleV65Ui();
+  return result;
+};
+if (typeof getV63Actions === "function") {
+  const getV63ActionsBeforeV65 = getV63Actions;
+  getV63Actions = function() {
+    const actions = getV63ActionsBeforeV65.apply(this, arguments).slice();
+    const kind = typeof getV63PageKind === "function" ? getV63PageKind() : currentTab;
+    if (kind === "hub-analysis" && !actions.some((action) => action.label === "Rating")) {
+      actions.splice(2, 0, { icon: "R", label: "Rating", sub: "実力指標", tab: "ranking", scroll: ".rating-section-v65" });
+    }
+    if (kind === "my-page" && !actions.some((action) => action.label === "Rating")) {
+      actions.splice(1, 0, { icon: "R", label: "Rating", sub: "自分の実力", scroll: ".my-page-rating-section-v65" });
+    }
+    return actions;
+  };
+}
+scheduleV65Ui();
