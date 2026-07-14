@@ -9128,3 +9128,193 @@ if (typeof renderMyPageV55 === "function") {
   };
 }
 scheduleSimpleUiV62();
+
+
+/* v63: reduce visual noise with a clear action strip and simple/detail switch */
+const V63_DISPLAY_MODE_KEY = "moriken-v63-display-mode";
+function getV63DisplayMode() {
+  return localStorage.getItem(V63_DISPLAY_MODE_KEY) || "simple";
+}
+function setV63DisplayMode(mode) {
+  localStorage.setItem(V63_DISPLAY_MODE_KEY, mode === "detail" ? "detail" : "simple");
+}
+function v63ScrollToElement(element) {
+  if (!element) return;
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function v63FindButtonByText(text) {
+  return [...document.querySelectorAll("button")].find((button) => (button.textContent || "").trim().includes(text));
+}
+async function v63RunAction(action) {
+  if (!action) return;
+  if (action.tab && action.tab !== currentTab) {
+    await switchTab(action.tab);
+    requestAnimationFrame(() => v63RunAction({ ...action, tab: null }));
+    return;
+  }
+  if (Number.isInteger(action.createStep)) {
+    const target = document.querySelector(`[data-v40-go-step="${action.createStep}"]`);
+    if (target && !target.disabled) target.click();
+    v63ScrollToElement(document.querySelector(".create-wizard-progress-v40") || document.getElementById("createSessionForm"));
+    return;
+  }
+  if (action.click) {
+    const clickable = document.querySelector(action.click) || v63FindButtonByText(action.textClick || "");
+    if (clickable && !clickable.disabled) clickable.click();
+  }
+  if (action.scroll) {
+    requestAnimationFrame(() => v63ScrollToElement(document.querySelector(action.scroll)));
+  }
+}
+function getV63PageKind() {
+  if (currentTab === "game" && showCreateSession) return "game-create";
+  if (currentTab === "game") return "game-active";
+  return currentTab;
+}
+function getV63Actions() {
+  const kind = getV63PageKind();
+  const activeSessionOpen = activeMatchSession?.status === "open";
+  const actions = {
+    home: [
+      { icon: "🀄", label: "対局開始", sub: "新しい日を作る", tab: "game" },
+      { icon: "👤", label: "マイページ", sub: "自分の状況", tab: "my-page" },
+      { icon: "💴", label: "精算", sub: "未精算を確認", tab: "hub-settlement" }
+    ],
+    "hub-game": [
+      { icon: "🀄", label: "対局開始", sub: "新しい記録", tab: "game" },
+      { icon: "📅", label: "履歴", sub: "過去の対局", tab: "history" },
+      { icon: "▶", label: "進行中", sub: "入力へ戻る", tab: "game", scroll: "#liveInputPanel" }
+    ],
+    "game-create": [
+      { icon: "1", label: "形式", sub: "打ち方", createStep: 0 },
+      { icon: "2", label: "設定", sub: "日付・レート", createStep: 1 },
+      { icon: "3", label: "参加者", sub: "メンバー", createStep: 2 },
+      { icon: "4", label: "確認", sub: "開始", createStep: 3 }
+    ],
+    "game-active": [
+      { icon: "🀄", label: activeSessionOpen ? "半荘" : "詳細", sub: activeSessionOpen ? "登録する" : "記録を見る", click: "#toggleHanchanEditorButton", scroll: "#liveInputPanel" },
+      { icon: "表", label: "スコア表", sub: "点数推移", scroll: ".score-sheet-section" },
+      { icon: "💴", label: "精算", sub: "送金確認", scroll: ".final-settlement-section" }
+    ],
+    "hub-analysis": [
+      { icon: "👤", label: "マイページ", sub: "自分だけ", tab: "my-page" },
+      { icon: "📈", label: "ランキング", sub: "全体成績", scroll: ".ranking-page, .ranking-section" },
+      { icon: "🏠", label: "会場", sub: "場所別", scroll: ".venue-analytics-section" }
+    ],
+    "hub-settlement": [
+      { icon: "💴", label: "未精算", sub: "一覧", scroll: ".debt-record-list" },
+      { icon: "⇄", label: "まとめ直し", sub: "最短ルート", scroll: ".debt-consolidation-section" },
+      { icon: "✓", label: "履歴", sub: "送金済み", click: "[data-debt-view='history']", scroll: ".debt-record-list" }
+    ],
+    settings: [
+      { icon: "招", label: "招待", sub: "コード確認", scroll: ".settings-section" },
+      { icon: "🏠", label: "会場", sub: "テンプレ", textClick: "会場", click: "[data-v42-settings-focus='daily']" },
+      { icon: "🗄", label: "データ", sub: "保存・復元", click: "[data-v42-settings-focus='data']" }
+    ],
+    "my-page": [
+      { icon: "📈", label: "成績", sub: "自分の推移", scroll: ".my-page-trend, .trend-chart-wrap" },
+      { icon: "💴", label: "借pt", sub: "支払・受取", scroll: ".my-page-debt, .debt-summary-card" },
+      { icon: "🀄", label: "最近", sub: "自分の対局", scroll: ".recent-session-list" }
+    ],
+    history: [
+      { icon: "📅", label: "カレンダー", sub: "日付で探す", scroll: ".history-calendar-panel" },
+      { icon: "🔎", label: "検索", sub: "条件指定", scroll: ".history-filter-panel" },
+      { icon: "🀄", label: "対局一覧", sub: "記録を開く", scroll: ".history-session-list" }
+    ]
+  };
+  return actions[kind] || [];
+}
+function addV63ActionStrip(page) {
+  if (!page) return;
+  page.querySelector(".v63-action-strip")?.remove();
+  const focus = page.querySelector(".v62-focus-bar") || page.firstElementChild;
+  const actions = getV63Actions();
+  if (!focus || !actions.length) return;
+  const strip = document.createElement("section");
+  strip.className = "v63-action-strip";
+  strip.innerHTML = `
+    <div class="v63-action-copy">
+      <p class="eyebrow">NEXT ACTION</p>
+      <strong>よく使う操作</strong>
+    </div>
+    <div class="v63-action-buttons">
+      ${actions.map((action, index) => `
+        <button type="button" class="v63-action-button ${index === 0 ? "primary" : ""}" data-v63-action="${index}">
+          <span class="v63-action-icon">${escapeHtml(action.icon)}</span>
+          <span><strong>${escapeHtml(action.label)}</strong><small>${escapeHtml(action.sub || "")}</small></span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+  focus.insertAdjacentElement("afterend", strip);
+  strip.querySelectorAll("[data-v63-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.v63Action);
+      void v63RunAction(actions[index]);
+    });
+  });
+}
+function addV63ModeSwitch(page) {
+  if (!page) return;
+  const focus = page.querySelector(".v62-focus-bar");
+  if (!focus || focus.querySelector(".v63-mode-switch")) return;
+  const mode = getV63DisplayMode();
+  const switcher = document.createElement("div");
+  switcher.className = "v63-mode-switch";
+  switcher.innerHTML = `
+    <button type="button" class="${mode === "simple" ? "active" : ""}" data-v63-mode="simple">シンプル</button>
+    <button type="button" class="${mode === "detail" ? "active" : ""}" data-v63-mode="detail">詳細</button>
+  `;
+  focus.appendChild(switcher);
+  switcher.querySelectorAll("[data-v63-mode]").forEach((button) => button.addEventListener("click", () => {
+    setV63DisplayMode(button.dataset.v63Mode);
+    applyV63Ui();
+  }));
+}
+function applyV63Density(page) {
+  const mode = getV63DisplayMode();
+  document.body.classList.toggle("v63-detail-mode", mode === "detail");
+  document.body.classList.toggle("v63-simple-mode", mode !== "detail");
+  if (!page) return;
+  page.classList.add("v63-page");
+  const isDetail = mode === "detail";
+  page.querySelectorAll(".game-section-note, .workspace-description, .history-calendar-note, .ranking-note").forEach((note) => {
+    if ((note.textContent || "").trim().length > 34) {
+      note.classList.toggle("v63-note-compact", !isDetail);
+    }
+  });
+  page.querySelectorAll(".secondary-button, .icon-text-button, .danger-outline-button").forEach((button) => {
+    if (!button.closest(".v63-action-strip") && !button.closest(".create-wizard-controls-v40")) {
+      button.classList.toggle("v63-secondary-action", !isDetail);
+    }
+  });
+}
+function applyV63Ui() {
+  const page = getPageWorkspace?.();
+  if (!page || page.hidden) return;
+  addV63ActionStrip(page);
+  addV63ModeSwitch(page);
+  applyV63Density(page);
+}
+function scheduleV63Ui() {
+  requestAnimationFrame(() => {
+    applyV63Ui();
+    requestAnimationFrame(applyV63Ui);
+  });
+}
+const switchTabBeforeV63 = switchTab;
+switchTab = async function(tab) {
+  await switchTabBeforeV63(tab);
+  scheduleV63Ui();
+};
+["renderActiveSessionView", "renderCreateSessionView", "renderSettingsPage", "renderMyPageV55", "renderHomeDashboardV35", "renderMatchDashboardV36", "renderHistoryPage", "renderDebtPage", "renderRankingPage"].forEach((name) => {
+  if (typeof globalThis[name] === "function") {
+    const previous = globalThis[name];
+    globalThis[name] = function(...args) {
+      const result = previous.apply(this, args);
+      scheduleV63Ui();
+      return result;
+    };
+  }
+});
+scheduleV63Ui();
