@@ -3681,3 +3681,47 @@ button.history-calendar-cell { cursor: pointer; }
   .v66-home-challenge { grid-template-columns: minmax(0,1fr) auto 20px; padding: 14px; }
   .v66-home-challenge-progress strong { font-size: 20px; }
 }
+
+
+/* v67: supplied mahjong tile image assets */
+.v66-mahjong-tile.has-tile-image {
+  display: inline-block;
+  width: 35px;
+  height: 47px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.v66-mahjong-tile.has-tile-image.large { width: 44px; height: 59px; border-radius: 0; }
+.v66-mahjong-tile.has-tile-image.small { width: 28px; height: 38px; border: 0; }
+.v66-mahjong-tile.has-tile-image > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.v66-mahjong-tile.has-tile-image.is-red > i { display: none; }
+.v67-flower-glyph {
+  position: absolute;
+  inset: 7% 8% 12%;
+  display: grid;
+  place-items: center;
+  color: #9b3f28;
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255,255,255,.85);
+  pointer-events: none;
+}
+.v66-mahjong-tile.has-tile-image.large .v67-flower-glyph { font-size: 25px; }
+.v66-mahjong-tile.has-tile-image.small .v67-flower-glyph { font-size: 15px; }
+.v66-answer-option .v66-mahjong-tile.has-tile-image { transition: transform .16s ease, filter .16s ease; }
+.v66-answer-option:hover .v66-mahjong-tile.has-tile-image { transform: translateY(-2px); filter: brightness(1.02); }
+.v66-answer-option.selected .v66-mahjong-tile.has-tile-image { transform: translateY(-4px); filter: drop-shadow(0 5px 5px rgba(13,59,46,.18)); }

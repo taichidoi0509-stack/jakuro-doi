@@ -10198,9 +10198,33 @@ function tileInfoV66(codeValue) {
   };
 }
 
+const V67_TILE_ASSET_BASE = "./assets/mahjong";
+
+function tileAssetPathV67(codeValue) {
+  const code = String(codeValue || "").trim();
+  if (V66_FLOWER_LABELS[code]) return `${V67_TILE_ASSET_BASE}/blank.gif`;
+  if (V66_HONOR_LABELS[code]) return `${V67_TILE_ASSET_BASE}/${code}.gif`;
+  const match = code.match(/^([1-9])([mps])(r?)$/i);
+  if (!match) return "";
+  const number = match[1];
+  const suit = match[2].toLowerCase();
+  const red = Boolean(match[3]);
+  if (number === "5" && (suit === "p" || suit === "s")) {
+    return `${V67_TILE_ASSET_BASE}/5${suit}r.gif`;
+  }
+  return `${V67_TILE_ASSET_BASE}/${number}${suit}${red ? "r" : ""}.gif`;
+}
+
 function renderNanikiruTileV66(code, options = {}) {
   const info = tileInfoV66(code);
   const sizeClass = options.small ? "small" : options.large ? "large" : "";
+  const assetPath = tileAssetPathV67(info.code);
+  if (assetPath) {
+    const flowerGlyph = info.suit === "flower"
+      ? `<span class="v67-flower-glyph" aria-hidden="true">${escapeHtml(info.main)}</span>`
+      : "";
+    return `<span class="v66-mahjong-tile has-tile-image suit-${info.suit} ${info.red ? "is-red" : ""} ${sizeClass}" aria-label="${escapeHtml(info.label)}" title="${escapeHtml(info.label)}"><img src="${assetPath}" alt="" aria-hidden="true" decoding="async">${flowerGlyph}</span>`;
+  }
   return `<span class="v66-mahjong-tile suit-${info.suit} ${info.red ? "is-red" : ""} ${sizeClass}" aria-label="${escapeHtml(info.label)}" title="${escapeHtml(info.label)}"><b>${escapeHtml(info.main)}</b>${info.sub ? `<small>${escapeHtml(info.sub)}</small>` : ""}${info.red ? '<i>赤</i>' : ""}</span>`;
 }
 
