@@ -8951,3 +8951,180 @@ updateAuthUI = async function(session) {
   if (!session) resetMyPageDataV55();
   await updateAuthUIBeforeV55(session);
 };
+
+
+/* v62: シンプル運用UI。機能を残しつつ、日常操作と詳細確認を分離する。 */
+const V62_COLLAPSED_KEY = "moriken-v62-collapsed-sections";
+const V62_DETAIL_TITLES = new Set([
+  "この対局のpt推移",
+  "半荘詳細",
+  "終了時チップ",
+  "ゲーム収支",
+  "ゲーム収支のレート換算（pt）",
+  "場代精算"
+]);
+const V62_COMPACTABLE_TITLES = new Set([
+  "この対局のpt推移",
+  "半荘詳細",
+  "終了時チップ",
+  "ゲーム収支",
+  "ゲーム収支のレート換算（pt）",
+  "場代精算",
+  "編集履歴",
+  "JSONバックアップを復元",
+  "拡張JSONバックアップ v2を出力"
+]);
+function getV62CollapsedSections() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(V62_COLLAPSED_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+function setV62CollapsedSection(key, collapsed) {
+  const map = getV62CollapsedSections();
+  map[key] = !!collapsed;
+  localStorage.setItem(V62_COLLAPSED_KEY, JSON.stringify(map));
+}
+function v62SectionKey(title) {
+  return `${currentTab || "page"}:${activeMatchSessionId || "none"}:${title}`;
+}
+function simplifySectionV62(section, title) {
+  if (!section || section.dataset.v62Simplified === "1") return;
+  section.dataset.v62Simplified = "1";
+  section.classList.add("v62-section");
+  if (V62_DETAIL_TITLES.has(title)) section.classList.add("v62-secondary-section");
+  const heading = section.querySelector(".game-section-heading") || section.querySelector(".settings-section-heading") || section.querySelector(".v41-section-heading");
+  const targetHeading = heading || section;
+  const key = v62SectionKey(title);
+  const collapsedMap = getV62CollapsedSections();
+  const defaultCollapsed = V62_DETAIL_TITLES.has(title) && !["半荘詳細"].includes(title);
+  const shouldCollapse = collapsedMap[key] ?? defaultCollapsed;
+
+  if (V62_COMPACTABLE_TITLES.has(title)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "v62-section-toggle";
+    button.textContent = shouldCollapse ? "表示" : "閉じる";
+    button.addEventListener("click", () => {
+      const next = !section.classList.contains("v62-collapsed");
+      section.classList.toggle("v62-collapsed", next);
+      button.textContent = next ? "表示" : "閉じる";
+      setV62CollapsedSection(key, next);
+    });
+    targetHeading.appendChild(button);
+    section.classList.toggle("v62-collapsed", !!shouldCollapse);
+  }
+}
+function addPageFocusBarV62(page) {
+  if (!page || page.querySelector(".v62-focus-bar")) return;
+  let title = "必要な操作だけを先に表示";
+  let text = "詳細情報は必要なときだけ開けます。";
+  const map = {
+    home: ["今日見るべき情報", "新しい対局、未精算、最近の記録だけを先に確認します。"],
+    "hub-game": ["対局の入口", "進行中の対局へ戻るか、新しい対局を作成します。"],
+    game: [showCreateSession ? "新しい対局を作成" : "対局中の操作", showCreateSession ? "形式、設定、参加者、確認の順で進めます。" : "半荘登録・チップ・場代・精算を上から処理します。"],
+    "hub-analysis": ["成績を見る", "ランキング、マイページ、会場別集計を目的別に開きます。"],
+    "hub-settlement": ["未精算を整理", "未精算借ptの確認、まとめ直し、送金済み処理を行います。"],
+    settings: ["管理・設定", "普段使う設定とデータ管理を分けて表示します。"],
+    "my-page": ["自分の状況", "自分の成績、借pt、最近の対局だけをまとめます。"]
+  };
+  if (map[currentTab]) [title, text] = map[currentTab];
+  const bar = document.createElement("section");
+  bar.className = "v62-focus-bar";
+  bar.innerHTML = `<div><p class="eyebrow">FOCUS</p><h3>${escapeHtml(title)}</h3><small>${escapeHtml(text)}</small></div>`;
+  const first = page.firstElementChild;
+  if (first) page.insertBefore(bar, first); else page.appendChild(bar);
+}
+function simplifyActiveSessionV62(page) {
+  if (!page) return;
+  const live = page.querySelector(".live-input-panel");
+  if (live && !live.querySelector(".v62-live-note")) {
+    const note = document.createElement("p");
+    note.className = "v62-live-note";
+    note.textContent = "対局中はここだけ見れば入力できます。下の表と精算は確認用です。";
+    live.querySelector(".live-input-heading")?.appendChild(note);
+  }
+  page.querySelectorAll(".game-section").forEach((section) => {
+    const title = section.querySelector(".game-section-title")?.textContent?.trim();
+    if (title) simplifySectionV62(section, title);
+  });
+}
+function simplifyDashboardCardsV62(page) {
+  if (!page) return;
+  page.querySelectorAll(".v41-dashboard-tile, .home-action-card, .hub-menu-card, .live-action-card").forEach((card) => {
+    card.classList.add("v62-action-surface");
+  });
+  page.querySelectorAll(".workspace-description, .game-section-note, .v41-dashboard-tile small, .home-action-card small, .hub-menu-card small").forEach((el) => {
+    const text = el.textContent.trim();
+    if (text.length > 46) el.classList.add("v62-muted-short");
+  });
+}
+function simplifySettingsV62(page) {
+  if (!page) return;
+  page.querySelectorAll(".settings-section").forEach((section) => {
+    const title = section.querySelector("h3")?.textContent?.trim() || section.querySelector(".game-section-title")?.textContent?.trim();
+    if (title) simplifySectionV62(section, title);
+  });
+}
+function applySimpleUiV62() {
+  document.body.classList.add("v62-simple-ui");
+  const page = getPageWorkspace?.();
+  if (!page || page.hidden) return;
+  page.classList.add("v62-page");
+  addPageFocusBarV62(page);
+  simplifyDashboardCardsV62(page);
+  simplifyActiveSessionV62(page);
+  simplifySettingsV62(page);
+}
+function scheduleSimpleUiV62() {
+  requestAnimationFrame(() => {
+    applySimpleUiV62();
+    requestAnimationFrame(applySimpleUiV62);
+  });
+}
+const switchTabBeforeV62 = switchTab;
+switchTab = async function(tab) {
+  await switchTabBeforeV62(tab);
+  scheduleSimpleUiV62();
+};
+const renderActiveSessionViewBeforeV62 = renderActiveSessionView;
+renderActiveSessionView = function() {
+  renderActiveSessionViewBeforeV62();
+  scheduleSimpleUiV62();
+};
+const renderCreateSessionViewBeforeV62 = renderCreateSessionView;
+renderCreateSessionView = function() {
+  renderCreateSessionViewBeforeV62();
+  scheduleSimpleUiV62();
+};
+if (typeof renderHomeDashboardV35 === "function") {
+  const renderHomeDashboardBeforeV62 = renderHomeDashboardV35;
+  renderHomeDashboardV35 = function() {
+    renderHomeDashboardBeforeV62();
+    scheduleSimpleUiV62();
+  };
+}
+if (typeof renderMatchDashboardV36 === "function") {
+  const renderMatchDashboardBeforeV62 = renderMatchDashboardV36;
+  renderMatchDashboardV36 = function() {
+    renderMatchDashboardBeforeV62();
+    scheduleSimpleUiV62();
+  };
+}
+if (typeof renderSettingsPage === "function") {
+  const renderSettingsPageBeforeV62 = renderSettingsPage;
+  renderSettingsPage = function() {
+    renderSettingsPageBeforeV62();
+    scheduleSimpleUiV62();
+  };
+}
+if (typeof renderMyPageV55 === "function") {
+  const renderMyPageBeforeV62 = renderMyPageV55;
+  renderMyPageV55 = function() {
+    renderMyPageBeforeV62();
+    scheduleSimpleUiV62();
+  };
+}
+scheduleSimpleUiV62();
