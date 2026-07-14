@@ -1386,6 +1386,14 @@ function renderActiveSessionView() {
     : `<p class="game-section-note">送金は不要です。</p>`;
   const sessionProgress = buildSessionProgressTrend();
   const sessionScoreSheet = buildSessionScoreSheet();
+  const nextHanchanNo = sortedHanchans.length + 1;
+  const chipStatusLabel = activeSessionChips.length ? "入力済み" : "未入力";
+  const venueStatusLabel = fee > 0 || activeVenuePrepayments.length ? (venueReady ? "一致" : "要確認") : "未入力";
+  const venueStatusClass = fee > 0 || activeVenuePrepayments.length ? (venueReady ? "ok" : "warn") : "idle";
+  const liveHanchanLabel = showHanchanEditor
+    ? editingHanchanId ? "半荘編集を閉じる" : "半荘入力を閉じる"
+    : session.status === "open" ? `第${nextHanchanNo}半荘を登録` : editingHanchanId ? "編集中" : "精算済み";
+  const liveEditorPanel = `${showHanchanEditor ? renderHanchanEditor() : ""}${showChipEditor ? renderChipEditor() : ""}${showVenueEditor ? renderVenueEditor() : ""}`;
 
   page.innerHTML = `
     <section class="game-card">
@@ -1405,6 +1413,36 @@ function renderActiveSessionView() {
         <div><span>チップ単価</span><strong>${session.chip_value} / 枚</strong></div>
       </div>
       ${gameMessage ? `<p class="game-success-message">${escapeHtml(gameMessage)}</p>` : ""}
+
+      <section class="game-section live-input-panel" id="liveInputPanel">
+        <div class="game-section-heading live-input-heading">
+          <div>
+            <p class="eyebrow">LIVE INPUT</p>
+            <p class="game-section-title">対局中の入力</p>
+            <p class="game-section-note">半荘登録・チップ・場代・精算をここから操作します。対局中はこのエリアだけ見れば進められます。</p>
+          </div>
+          <span class="session-status ${session.status}">${session.status === "settled" ? "精算済み" : "入力中"}</span>
+        </div>
+        <div class="live-action-grid">
+          <button id="toggleHanchanEditorButton" class="live-action-card primary" type="button" ${session.status !== "open" && !showHanchanEditor ? "disabled" : ""}>
+            <span class="live-action-icon">🀄</span>
+            <span><strong>${liveHanchanLabel}</strong><small>${sortedHanchans.length}半荘登録済み</small></span>
+          </button>
+          <button id="toggleChipEditorButton" class="live-action-card" type="button">
+            <span class="live-action-icon">◎</span>
+            <span><strong>チップ</strong><small>${chipStatusLabel}</small></span>
+          </button>
+          <button id="toggleVenueEditorButton" class="live-action-card" type="button">
+            <span class="live-action-icon">場</span>
+            <span><strong>場代</strong><small class="status-${venueStatusClass}">${venueStatusLabel}</small></span>
+          </button>
+          <button id="jumpFinalSettlementButton" class="live-action-card" type="button">
+            <span class="live-action-icon">↔</span>
+            <span><strong>精算確認</strong><small>${venueReady ? "送金ルート確認" : "場代を確認"}</small></span>
+          </button>
+        </div>
+        ${liveEditorPanel ? `<div class="live-editor-zone">${liveEditorPanel}</div>` : ""}
+      </section>
 
       <section class="game-section session-progress-section">
         <div class="game-section-heading">
@@ -1431,24 +1469,20 @@ function renderActiveSessionView() {
             <p class="game-section-title">半荘詳細</p>
             <p class="game-section-note">スコア表の第1・第2などを押すと、表示する半荘を切り替えられます。</p>
           </div>
-          ${session.status === "open"
-            ? `<button id="toggleHanchanEditorButton" class="secondary-button" type="button">${showHanchanEditor ? "入力を閉じる" : "＋ 半荘を追加"}</button>`
-            : showHanchanEditor
-              ? `<button id="toggleHanchanEditorButton" class="secondary-button" type="button">編集を閉じる</button>`
-              : ""}
+          <span class="section-side-note">登録・編集は上部の入力パネルから操作</span>
         </div>
         ${selectedHanchanDetail}
       </section>
-      ${showHanchanEditor ? renderHanchanEditor() : ""}
 
-      <section class="game-section">
+
+      <section class="game-section" id="chipSummarySection">
         <div class="game-section-heading">
           <p class="game-section-title">終了時チップ</p>
-          <button id="toggleChipEditorButton" class="secondary-button" type="button">${showChipEditor ? "入力を閉じる" : activeSessionChips.length ? "チップを編集" : "チップを入力"}</button>
+          <span class="section-side-note">入力は上部の「チップ」から</span>
         </div>
         ${activeSessionChips.length ? `<div class="chip-summary-list">${activeMatchMembers.map((member) => `<div class="chip-summary-row"><span>${escapeHtml(getMemberName(member.member_id))}</span><strong>${formatChipMarkup(getChipCount(member.member_id))}</strong></div>`).join("")}</div>` : `<p class="game-section-note">チップは麻雀会が終わるタイミングで、全員分をまとめて入力します。</p>`}
       </section>
-      ${showChipEditor ? renderChipEditor() : ""}
+
 
       <section class="game-section">
         <p class="game-section-title">ゲーム収支</p>
@@ -1463,8 +1497,8 @@ function renderActiveSessionView() {
         <div class="daily-total-footer"><span>ゲーム換算pt合計</span><strong>${formatPtMarkup(gameSettlementPtSum)}</strong></div>
       </section>
 
-      <section class="game-section">
-        <div class="game-section-heading"><p class="game-section-title">場代精算</p><button id="toggleVenueEditorButton" class="secondary-button" type="button">${showVenueEditor ? "入力を閉じる" : fee > 0 || activeVenuePrepayments.length ? "場代を編集" : "場代を入力"}</button></div>
+      <section class="game-section" id="venueSummarySection">
+        <div class="game-section-heading"><p class="game-section-title">場代精算</p><span class="section-side-note">入力は上部の「場代」から</span></div>
         <div class="venue-summary-box">
           <div><span>場代合計</span><strong>${formatPtPlain(fee)}</strong></div>
           <div><span>先払い合計</span><strong>${formatPtPlain(prepaidTotal)}</strong></div>
@@ -1472,9 +1506,9 @@ function renderActiveSessionView() {
         </div>
         <p class="game-section-note">場代は参加者で均等負担します。先払いは複数人・一部払いに対応します。</p>
       </section>
-      ${showVenueEditor ? renderVenueEditor() : ""}
 
-      <section class="game-section final-settlement-section">
+
+      <section class="game-section final-settlement-section" id="finalSettlementSection">
         <p class="game-section-title">場代込み最終精算</p>
         <div class="final-settlement-list">${finalRows}</div>
         <div class="daily-total-footer"><span>最終pt合計</span><strong>${formatPtMarkup(finalSettlementPtSum)}</strong></div>
@@ -1529,6 +1563,9 @@ function renderActiveSessionView() {
     renderActiveSessionView();
   });
   document.getElementById("settleSessionButton")?.addEventListener("click", settleMatchSession);
+  document.getElementById("jumpFinalSettlementButton")?.addEventListener("click", () => {
+    document.getElementById("finalSettlementSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   document.getElementById("openResultShareCardButton")?.addEventListener("click", () => {
     openResultShareCard({ session, totals, routes, venueReady });
   });

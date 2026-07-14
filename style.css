@@ -2312,3 +2312,145 @@ button.history-calendar-cell { cursor: pointer; }
     align-items: flex-start;
   }
 }
+
+/* v61: 対局中入力パネル */
+.live-input-panel {
+  border: 1px solid rgba(21, 68, 50, 0.16);
+  background: linear-gradient(180deg, rgba(244, 250, 246, 0.98), rgba(255, 255, 255, 0.96));
+}
+
+.live-input-heading {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.live-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.live-action-card {
+  appearance: none;
+  border: 1px solid rgba(21, 68, 50, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink, #16231d);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 82px;
+  padding: 14px;
+  text-align: left;
+  box-shadow: 0 10px 28px rgba(22, 35, 29, 0.06);
+  cursor: pointer;
+}
+
+.live-action-card.primary {
+  background: var(--green, #154432);
+  color: #fff;
+  border-color: var(--green, #154432);
+}
+
+.live-action-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.live-action-card strong,
+.live-action-card small {
+  display: block;
+  line-height: 1.25;
+}
+
+.live-action-card strong {
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.live-action-card small {
+  margin-top: 4px;
+  color: rgba(22, 35, 29, 0.58);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.live-action-card.primary small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.live-action-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  background: rgba(21, 68, 50, 0.1);
+  color: var(--green, #154432);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-weight: 900;
+  font-size: 1rem;
+}
+
+.live-action-card.primary .live-action-icon {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.live-editor-zone {
+  margin-top: 16px;
+}
+
+.live-editor-zone .hanchan-editor,
+.live-editor-zone .chip-editor,
+.live-editor-zone .venue-editor {
+  margin-top: 0;
+  border: 1px solid rgba(21, 68, 50, 0.12);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(22, 35, 29, 0.08);
+}
+
+.section-side-note {
+  color: rgba(22, 35, 29, 0.58);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.status-ok { color: #167a4a !important; }
+.status-warn { color: #b36b00 !important; }
+.status-idle { color: rgba(22, 35, 29, 0.58) !important; }
+
+@media (max-width: 720px) {
+  .live-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .live-action-card {
+    min-height: 76px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .live-action-card strong {
+    font-size: 0.92rem;
+  }
+
+  .live-action-card small {
+    font-size: 0.72rem;
+  }
+
+  .live-action-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+
+  .section-side-note {
+    text-align: left;
+  }
+}
