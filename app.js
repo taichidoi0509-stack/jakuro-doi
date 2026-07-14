@@ -9318,3 +9318,380 @@ switchTab = async function(tab) {
   }
 });
 scheduleV63Ui();
+
+
+/* v64: monthly titles and comeback simulator */
+const V64_MONTHLY_TITLE_KEY = "moriken-v64-monthly-title-month";
+const v64ComebackDraftBySession = {};
+
+function getV64RankingMonths() {
+  return [...new Set((rankingRaw.sessions || [])
+    .map((session) => String(session.session_date || "").slice(0, 7))
+    .filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a));
+}
+function getV64SelectedMonth() {
+  const months = getV64RankingMonths();
+  if (!months.length) return "";
+  const saved = localStorage.getItem(V64_MONTHLY_TITLE_KEY) || "";
+  return months.includes(saved) ? saved : months[0];
+}
+function setV64SelectedMonth(month) {
+  localStorage.setItem(V64_MONTHLY_TITLE_KEY, month || "");
+}
+function formatV64MonthLabel(month) {
+  if (!month) return "月を選択";
+  const [year, monthNum] = String(month).split("-");
+  return `${year}年${Number(monthNum)}月`;
+}
+function buildV64MonthlyTitleStats(month) {
+  if (!month) return { entries: [], hanchanCount: 0, sessionCount: 0 };
+  const sessions = (rankingRaw.sessions || []).filter((session) => String(session.session_date || "").startsWith(month));
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const sessionMap = new Map(sessions.map((session) => [session.id, session]));
+  const membersBySession = new Map();
+  const hanchansBySession = new Map();
+  const resultsByHanchan = new Map();
+  const chipsBySessionMember = new Map();
+  (rankingRaw.sessionMembers || []).filter((member) => sessionIds.has(member.session_id)).forEach((member) => {
+    if (!membersBySession.has(member.session_id)) membersBySession.set(member.session_id, []);
+    membersBySession.get(member.session_id).push(member.member_id);
+  });
+  (rankingRaw.hanchans || []).filter((hanchan) => sessionIds.has(hanchan.session_id)).forEach((hanchan) => {
+    if (!hanchansBySession.has(hanchan.session_id)) hanchansBySession.set(hanchan.session_id, []);
+    hanchansBySession.get(hanchan.session_id).push(hanchan);
+  });
+  (rankingRaw.results || []).forEach((result) => {
+    if (!resultsByHanchan.has(result.hanchan_id)) resultsByHanchan.set(result.hanchan_id, []);
+    resultsByHanchan.get(result.hanchan_id).push(result);
+  });
+  (rankingRaw.chips || []).filter((chip) => sessionIds.has(chip.session_id)).forEach((chip) => {
+    chipsBySessionMember.set(`${chip.session_id}:${chip.member_id}`, num(chip.chip_count));
+  });
+
+  const monthHanchanIds = new Set();
+  (rankingRaw.hanchans || []).forEach((hanchan) => {
+    if (sessionIds.has(hanchan.session_id)) monthHanchanIds.add(hanchan.id);
+  });
+  const yakumanByMember = new Map();
+  (rankingRaw.yakumans || []).filter((record) => monthHanchanIds.has(record.hanchan_id)).forEach((record) => {
+    yakumanByMember.set(record.winner_member_id, (yakumanByMember.get(record.winner_member_id) || 0) + 1);
+  });
+
+  const stats = new Map();
+  const ensure = (memberId) => {
+    if (!stats.has(memberId)) {
+      stats.set(memberId, {
+        memberId,
+        displayName: getRankingMemberName(memberId),
+        totalPt: 0,
+        scorePt: 0,
+        chipCount: 0,
+        sessions: 0,
+        hanchans: 0,
+        rankSum: 0,
+        firstCount: 0,
+        lastCount: 0,
+        yakumanCount: 0,
+        bestSessionPt: null,
+        worstSessionPt: null
+      });
+    }
+    return stats.get(memberId);
+  };
+
+  sessions.forEach((session) => {
+    const memberIds = membersBySession.get(session.id) || [];
+    const sessionHanchans = hanchansBySession.get(session.id) || [];
+    const hanchanTotalByMember = new Map();
+    const sessionStatsByMember = new Map();
+    sessionHanchans.forEach((hanchan) => {
+      const results = (resultsByHanchan.get(hanchan.id) || []).filter((result) => memberIds.includes(result.member_id));
+      if (!results.length) return;
+      const maxRank = Math.max(...results.map((result) => num(result.rank)));
+      results.forEach((result) => {
+        hanchanTotalByMember.set(result.member_id, roundOne(num(hanchanTotalByMember.get(result.member_id)) + num(result.total_points)));
+        if (!sessionStatsByMember.has(result.member_id)) sessionStatsByMember.set(result.member_id, { hanchans: 0, rankSum: 0, firstCount: 0, lastCount: 0 });
+        const stat = sessionStatsByMember.get(result.member_id);
+        stat.hanchans += 1;
+        stat.rankSum += num(result.rank);
+        if (num(result.rank) === 1) stat.firstCount += 1;
+        if (num(result.rank) === maxRank) stat.lastCount += 1;
+      });
+    });
+    const multiplier = num(sessionMap.get(session.id)?.rate_multiplier || session.rate_multiplier || 30);
+    memberIds.forEach((memberId) => {
+      const entry = ensure(memberId);
+      const hanchanScore = roundOne(hanchanTotalByMember.get(memberId));
+      const chipCount = num(chipsBySessionMember.get(`${session.id}:${memberId}`));
+      const chipPt = roundTo(chipCount * num(session.chip_value) * multiplier, 2);
+      const scorePt = roundTo(hanchanScore * multiplier, 2);
+      const totalPt = roundTo(scorePt + chipPt, 2);
+      const stat = sessionStatsByMember.get(memberId) || { hanchans: 0, rankSum: 0, firstCount: 0, lastCount: 0 };
+      entry.totalPt = roundTo(entry.totalPt + totalPt, 2);
+      entry.scorePt = roundTo(entry.scorePt + scorePt, 2);
+      entry.chipCount = roundOne(entry.chipCount + chipCount);
+      entry.sessions += 1;
+      entry.hanchans += stat.hanchans;
+      entry.rankSum += stat.rankSum;
+      entry.firstCount += stat.firstCount;
+      entry.lastCount += stat.lastCount;
+      entry.bestSessionPt = entry.bestSessionPt === null ? totalPt : Math.max(entry.bestSessionPt, totalPt);
+      entry.worstSessionPt = entry.worstSessionPt === null ? totalPt : Math.min(entry.worstSessionPt, totalPt);
+    });
+  });
+
+  yakumanByMember.forEach((count, memberId) => {
+    ensure(memberId).yakumanCount = count;
+  });
+
+  const entries = [...stats.values()].map((entry) => ({
+    ...entry,
+    averageRank: entry.hanchans ? roundTo(entry.rankSum / entry.hanchans, 2) : null,
+    firstRate: entry.hanchans ? roundTo((entry.firstCount / entry.hanchans) * 100, 1) : null,
+    lastRate: entry.hanchans ? roundTo((entry.lastCount / entry.hanchans) * 100, 1) : null,
+    avoidLastRate: entry.hanchans ? roundTo(100 - (entry.lastCount / entry.hanchans) * 100, 1) : null
+  })).filter((entry) => entry.sessions > 0 || entry.yakumanCount > 0);
+
+  return { entries, hanchanCount: monthHanchanIds.size, sessionCount: sessions.length };
+}
+function v64TopEntries(entries, getter, direction = "max", options = {}) {
+  const filtered = entries.filter((entry) => {
+    const value = getter(entry);
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return false;
+    if (options.minHanchans && num(entry.hanchans) < options.minHanchans) return false;
+    if (options.positiveOnly && num(value) <= 0.004) return false;
+    return true;
+  });
+  if (!filtered.length) return { entries: [], value: null };
+  const values = filtered.map((entry) => num(getter(entry)));
+  const target = direction === "min" ? Math.min(...values) : Math.max(...values);
+  const winners = filtered.filter((entry) => nearlyEqual(getter(entry), target, 0.0001)).sort((a, b) => a.displayName.localeCompare(b.displayName, "ja"));
+  return { entries: winners, value: target };
+}
+function v64WinnerNames(winners) {
+  return winners.map((entry) => escapeHtml(entry.displayName)).join(" / ");
+}
+function v64MonthlyTitleCard(title, icon, result, valueHtml, note, emptyText = "該当なし") {
+  const hasWinner = result.entries.length && result.value !== null;
+  return `<article class="v64-title-card ${hasWinner ? "" : "empty"}">
+    <span class="v64-title-icon">${escapeHtml(icon)}</span>
+    <div>
+      <small>${escapeHtml(title)}</small>
+      <strong>${hasWinner ? v64WinnerNames(result.entries) : escapeHtml(emptyText)}</strong>
+      <b>${hasWinner ? valueHtml(result.value, result.entries) : "—"}</b>
+      <em>${escapeHtml(note)}</em>
+    </div>
+  </article>`;
+}
+function renderV64MonthlyTitlesMarkup() {
+  const months = getV64RankingMonths();
+  if (!months.length) return "";
+  const selectedMonth = getV64SelectedMonth();
+  const stats = buildV64MonthlyTitleStats(selectedMonth);
+  const entries = stats.entries;
+  const minHanchans = stats.hanchanCount >= 6 ? 3 : 1;
+  const titles = [
+    v64MonthlyTitleCard("月間王者", "王", v64TopEntries(entries, (entry) => entry.totalPt), (value) => formatPtMarkup(value), "総合ptが最も高い"),
+    v64MonthlyTitleCard("素点王", "点", v64TopEntries(entries, (entry) => entry.scorePt), (value) => formatPtMarkup(value), "チップを除いたゲームpt"),
+    v64MonthlyTitleCard("チップ王", "枚", v64TopEntries(entries, (entry) => entry.chipCount, "max"), (value) => formatChipMarkup(value), "終了時チップの合計"),
+    v64MonthlyTitleCard("トップ率王", "トップ", v64TopEntries(entries, (entry) => entry.firstRate, "max", { minHanchans }), (value) => `${formatNumber(value, 1)}%`, `${minHanchans}半荘以上で集計`),
+    v64MonthlyTitleCard("ラス回避職人", "避", v64TopEntries(entries, (entry) => entry.avoidLastRate, "max", { minHanchans }), (value) => `${formatNumber(value, 1)}%`, `${minHanchans}半荘以上で集計`),
+    v64MonthlyTitleCard("役満賞", "役", v64TopEntries(entries, (entry) => entry.yakumanCount, "max", { positiveOnly: true }), (value) => `${formatNumber(value, 0)}回`, "今月の役満記録")
+  ].join("");
+  return `<section class="game-section monthly-title-section-v64">
+    <div class="game-section-heading">
+      <div>
+        <p class="game-section-title">月間タイトル</p>
+        <p class="game-section-note">その月の成績から自動表彰します。場代は除外し、ゲームptだけで判定します。</p>
+      </div>
+      <select id="v64MonthlyTitleMonthSelect" class="ranking-member-select">
+        ${months.map((month) => `<option value="${escapeHtml(month)}" ${month === selectedMonth ? "selected" : ""}>${escapeHtml(formatV64MonthLabel(month))}</option>`).join("")}
+      </select>
+    </div>
+    <div class="v64-title-summary"><span>${escapeHtml(formatV64MonthLabel(selectedMonth))}</span><strong>${stats.sessionCount}会・${stats.hanchanCount}半荘</strong></div>
+    <div class="v64-title-grid">${titles}</div>
+  </section>`;
+}
+function mountV64MonthlyTitles() {
+  const page = getPageWorkspace?.();
+  if (!page || currentTab !== "ranking") return;
+  if (page.querySelector(".monthly-title-section-v64")) return;
+  const panel = page.querySelector(".ranking-control-panel");
+  const markup = renderV64MonthlyTitlesMarkup();
+  if (!panel || !markup) return;
+  panel.insertAdjacentHTML("afterend", markup);
+  const select = page.querySelector("#v64MonthlyTitleMonthSelect");
+  select?.addEventListener("change", () => {
+    setV64SelectedMonth(select.value);
+    renderRankingPage();
+  });
+}
+
+function getV64ComebackDraft() {
+  const key = activeMatchSessionId || "no-session";
+  if (!v64ComebackDraftBySession[key]) v64ComebackDraftBySession[key] = {};
+  activeMatchMembers.forEach((member) => {
+    if (v64ComebackDraftBySession[key][member.member_id] === undefined) v64ComebackDraftBySession[key][member.member_id] = 0;
+  });
+  return v64ComebackDraftBySession[key];
+}
+function resetV64ComebackDraft() {
+  const key = activeMatchSessionId || "no-session";
+  v64ComebackDraftBySession[key] = {};
+  activeMatchMembers.forEach((member) => { v64ComebackDraftBySession[key][member.member_id] = 0; });
+}
+function buildV64CurrentSessionScoreEntries() {
+  const totals = new Map(activeMatchMembers.map((member) => [member.member_id, 0]));
+  activeHanchans.forEach((hanchan) => {
+    getHanchanResults(hanchan.id).forEach((result) => {
+      totals.set(result.member_id, roundOne(num(totals.get(result.member_id)) + num(result.total_points)));
+    });
+  });
+  return activeMatchMembers.map((member) => {
+    const hanchanScore = roundOne(totals.get(member.member_id));
+    const chipScore = roundOne(getChipCount(member.member_id) * num(activeMatchSession?.chip_value));
+    const currentScore = roundOne(hanchanScore + chipScore);
+    return {
+      memberId: member.member_id,
+      displayName: getMemberName(member.member_id),
+      hanchanScore,
+      chipScore,
+      currentScore
+    };
+  }).sort((a, b) => b.currentScore - a.currentScore || a.displayName.localeCompare(b.displayName, "ja"));
+}
+function renderV64ComebackProjectionMarkup() {
+  const entries = buildV64CurrentSessionScoreEntries();
+  const draft = getV64ComebackDraft();
+  if (!entries.length) return `<p class="game-section-note">参加者を設定すると逆転条件を表示します。</p>`;
+  const projected = entries.map((entry) => ({
+    ...entry,
+    nextScore: roundOne(num(draft[entry.memberId])),
+    projectedScore: roundOne(entry.currentScore + num(draft[entry.memberId]))
+  })).sort((a, b) => b.projectedScore - a.projectedScore || a.displayName.localeCompare(b.displayName, "ja"));
+  const inputSum = roundOne(projected.reduce((sum, entry) => sum + num(entry.nextScore), 0));
+  const rows = projected.map((entry, index) => `<div class="v64-projection-row ${index === 0 ? "leader" : ""}">
+    <span>${index + 1}位　${escapeHtml(entry.displayName)}</span>
+    <div><strong>${formatScoreMarkup(entry.projectedScore)}</strong><small>現在 ${formatScore(entry.currentScore)} ／ 仮 ${formatScore(entry.nextScore)}</small></div>
+  </div>`).join("");
+  return `<div class="v64-projection-box">
+    <div class="v64-projection-heading"><strong>仮入力後の順位</strong><span class="${nearlyEqual(inputSum, 0) ? "status-ok" : "status-error"}">仮入力合計 ${formatScore(inputSum)}</span></div>
+    ${rows}
+    <p class="game-section-note">仮入力は保存されません。次の半荘の収支を入れると、終了時の並びを試算できます。</p>
+  </div>`;
+}
+function renderV64ComebackSimulatorMarkup() {
+  if (!activeMatchSession || !activeMatchMembers.length) return "";
+  const entries = buildV64CurrentSessionScoreEntries();
+  const draft = getV64ComebackDraft();
+  const hanchanCount = activeHanchans.length;
+  const leader = entries[0];
+  const second = entries[1];
+  const currentRows = entries.map((entry, index) => `<div class="v64-current-row ${index === 0 ? "leader" : ""}">
+    <span>${index + 1}位　${escapeHtml(entry.displayName)}</span>
+    <div><strong>${formatScoreMarkup(entry.currentScore)}</strong><small>半荘 ${formatScore(entry.hanchanScore)} ／ チップ ${formatScore(entry.chipScore)}</small></div>
+  </div>`).join("");
+  const conditionRows = entries.map((entry, index) => {
+    if (index === 0) {
+      const margin = second ? roundOne(entry.currentScore - second.currentScore) : 0;
+      return `<article class="v64-condition-card leader"><strong>${escapeHtml(entry.displayName)}</strong><span>現在首位</span><small>2位との差：${formatScore(margin)}。この差を守れば首位維持。</small></article>`;
+    }
+    const gap = roundOne(leader.currentScore - entry.currentScore);
+    const need = roundOne(gap + 0.1);
+    return `<article class="v64-condition-card"><strong>${escapeHtml(entry.displayName)}</strong><span>首位まで ${formatScore(gap)}</span><small>次の半荘で ${escapeHtml(leader.displayName)} より ${formatScore(need)} 以上上回ると単独首位。</small></article>`;
+  }).join("");
+  const inputRows = entries.map((entry) => `<label class="v64-sim-input-row">
+    <span>${escapeHtml(entry.displayName)}</span>
+    <input class="signed-number-input ${inputValueClass(draft[entry.memberId] || 0)}" type="number" step="0.1" value="${escapeHtml(draft[entry.memberId] ?? 0)}" data-v64-comeback-member-id="${entry.memberId}">
+    <small>次半荘</small>
+  </label>`).join("");
+  return `<section class="game-section comeback-simulator-section" id="comebackSimulatorSection">
+    <div class="game-section-heading">
+      <div>
+        <p class="game-section-title">逆転シミュレーター</p>
+        <p class="game-section-note">現在の総合収支から、最終半荘前の逆転条件を確認できます。チップ入力済みの場合はチップも含めます。</p>
+      </div>
+      <span class="section-side-note">${hanchanCount}半荘終了時点</span>
+    </div>
+    <div class="v64-simulator-layout">
+      <div class="v64-sim-card"><div class="v64-sim-card-heading"><strong>現在順位</strong><small>ゲーム収支ベース</small></div>${currentRows}</div>
+      <div class="v64-sim-card"><div class="v64-sim-card-heading"><strong>逆転条件</strong><small>次半荘で必要な差分</small></div><div class="v64-condition-grid">${conditionRows}</div></div>
+      <div class="v64-sim-card v64-sim-input-card"><div class="v64-sim-card-heading"><strong>次半荘を仮入力</strong><button type="button" class="v64-mini-button" data-v64-reset-comeback>リセット</button></div><div class="v64-sim-input-list">${inputRows}</div><div id="v64ComebackProjection">${renderV64ComebackProjectionMarkup()}</div></div>
+    </div>
+  </section>`;
+}
+function refreshV64ComebackProjection() {
+  const box = document.getElementById("v64ComebackProjection");
+  if (box) box.innerHTML = renderV64ComebackProjectionMarkup();
+}
+function bindV64ComebackSimulator() {
+  document.querySelectorAll("[data-v64-comeback-member-id]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const draft = getV64ComebackDraft();
+      draft[input.dataset.v64ComebackMemberId] = input.value === "" ? 0 : num(input.value);
+      applySignedInputClass(input, draft[input.dataset.v64ComebackMemberId]);
+      refreshV64ComebackProjection();
+    });
+  });
+  document.querySelector("[data-v64-reset-comeback]")?.addEventListener("click", () => {
+    resetV64ComebackDraft();
+    document.querySelectorAll("[data-v64-comeback-member-id]").forEach((input) => {
+      input.value = 0;
+      applySignedInputClass(input, 0);
+    });
+    refreshV64ComebackProjection();
+  });
+}
+function mountV64ComebackSimulator() {
+  const page = getPageWorkspace?.();
+  if (!page || currentTab !== "game" || showCreateSession || !activeMatchSession) return;
+  if (page.querySelector(".comeback-simulator-section")) return;
+  const anchor = page.querySelector(".score-sheet-section") || page.querySelector("#liveInputPanel") || page.querySelector(".final-settlement-section");
+  const markup = renderV64ComebackSimulatorMarkup();
+  if (!anchor || !markup) return;
+  if (anchor.classList.contains("score-sheet-section")) anchor.insertAdjacentHTML("afterend", markup);
+  else anchor.insertAdjacentHTML("afterend", markup);
+  bindV64ComebackSimulator();
+}
+function scheduleV64Ui() {
+  requestAnimationFrame(() => {
+    mountV64MonthlyTitles();
+    mountV64ComebackSimulator();
+    if (typeof scheduleV63Ui === "function") scheduleV63Ui();
+  });
+}
+
+const renderRankingPageBeforeV64 = renderRankingPage;
+renderRankingPage = function(...args) {
+  const result = renderRankingPageBeforeV64.apply(this, args);
+  scheduleV64Ui();
+  return result;
+};
+const renderActiveSessionViewBeforeV64 = renderActiveSessionView;
+renderActiveSessionView = function(...args) {
+  const result = renderActiveSessionViewBeforeV64.apply(this, args);
+  scheduleV64Ui();
+  return result;
+};
+const switchTabBeforeV64 = switchTab;
+switchTab = async function(tab) {
+  const result = await switchTabBeforeV64(tab);
+  scheduleV64Ui();
+  return result;
+};
+if (typeof getV63Actions === "function") {
+  const getV63ActionsBeforeV64 = getV63Actions;
+  getV63Actions = function() {
+    const actions = getV63ActionsBeforeV64.apply(this, arguments).slice();
+    const kind = typeof getV63PageKind === "function" ? getV63PageKind() : currentTab;
+    if (kind === "game-active" && !actions.some((action) => action.label === "逆転")) {
+      actions.splice(2, 0, { icon: "逆", label: "逆転", sub: "条件確認", scroll: ".comeback-simulator-section" });
+    }
+    if (kind === "hub-analysis" && !actions.some((action) => action.label === "月間")) {
+      actions.splice(2, 0, { icon: "🏆", label: "月間", sub: "タイトル", tab: "ranking", scroll: ".monthly-title-section-v64" });
+    }
+    return actions;
+  };
+}
+scheduleV64Ui();
