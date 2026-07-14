@@ -2261,3 +2261,54 @@ button.history-calendar-cell { cursor: pointer; }
     width: 68px;
   }
 }
+
+
+/* v60 score sheet detail workflow */
+.score-sheet-round-button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 10px;
+  min-width: 52px;
+  background: rgba(15, 74, 54, 0.08);
+  color: var(--green);
+  font-weight: 900;
+  cursor: pointer;
+}
+.score-sheet-round-button:active {
+  transform: translateY(1px);
+}
+.score-sheet-hanchan-row.selected th,
+.score-sheet-hanchan-row.selected td {
+  background: rgba(15, 74, 54, 0.075);
+}
+.score-sheet-hanchan-row.selected .score-sheet-round-button {
+  background: var(--green);
+  color: #fff;
+}
+.score-sheet-cell strong .signed-value,
+.score-sheet-total-cell strong .signed-value {
+  font-size: inherit;
+}
+.hanchan-detail-section .hanchan-detail-card {
+  margin-top: 14px;
+}
+.hanchan-detail-card .history-result-list {
+  margin-top: 12px;
+}
+@media (max-width: 720px) {
+  .score-sheet-cell {
+    min-height: 58px;
+  }
+  .score-sheet-cell strong {
+    margin-top: 6px;
+    font-size: 0.96rem;
+  }
+  .score-sheet-rank {
+    min-width: 46px;
+    padding: 3px 7px;
+  }
+  .hanchan-detail-section .game-section-heading {
+    align-items: flex-start;
+  }
+}

@@ -67,6 +67,7 @@ let showVenueEditor = false;
 let sessionDraft = createDefaultSessionDraft("sanma");
 let hanchanDraft = null;
 let editingHanchanId = null;
+let selectedHanchanDetailId = null;
 let chipDraft = {};
 let chipTouchedMemberIds = new Set();
 let chipAutoMemberId = "";
@@ -366,6 +367,7 @@ function createHanchanDraftFromRecord(hanchanId) {
   };
 }
 function startEditHanchan(hanchanId) {
+  selectedHanchanDetailId = hanchanId;
   editingHanchanId = hanchanId;
   hanchanDraft = createHanchanDraftFromRecord(hanchanId);
   showHanchanEditor = true;
@@ -373,7 +375,7 @@ function startEditHanchan(hanchanId) {
   showVenueEditor = false;
   renderActiveSessionView();
 }
-function resetMatchViewState() { showCreateSession = false; showHanchanEditor = false; showChipEditor = false; showVenueEditor = false; hanchanDraft = null; editingHanchanId = null; chipDraft = {}; chipTouchedMemberIds = new Set(); chipAutoMemberId = ""; lastAutoTobiSignature = ""; venueDraft = { total: 0, prepayments: {} }; gameMessage = ""; }
+function resetMatchViewState() { showCreateSession = false; showHanchanEditor = false; showChipEditor = false; showVenueEditor = false; hanchanDraft = null; editingHanchanId = null; selectedHanchanDetailId = null; chipDraft = {}; chipTouchedMemberIds = new Set(); chipAutoMemberId = ""; lastAutoTobiSignature = ""; venueDraft = { total: 0, prepayments: {} }; gameMessage = ""; }
 
 function getGroupWorkspace() {
   if (!groupWorkspace) { groupWorkspace = document.createElement("section"); groupWorkspace.className = "group-workspace"; mainContent.insertBefore(groupWorkspace, roadmapSection); }
@@ -1332,44 +1334,17 @@ function renderActiveSessionView() {
     </option>
   `).join("");
 
-  const hanchanCards = activeHanchans.length
-    ? activeHanchans.map((hanchan) => {
-        const results = getHanchanResults(hanchan.id);
-        const transfers = getHanchanTransfers(hanchan.id);
-        const yakumans = getHanchanYakumans(hanchan.id);
-        const resultRows = results.map((result) => `
-          <div class="history-result-row">
-            <span>${result.rank}位 ${escapeHtml(getMemberName(result.member_id))}</span>
-            <strong>${formatScoreMarkup(result.total_points)}</strong>
-          </div>
-        `).join("");
-        const transferText = transfers.length
-          ? transfers.map((transfer) => `${escapeHtml(getMemberName(transfer.from_member_id))} → ${escapeHtml(getMemberName(transfer.to_member_id))} ${formatScore(transfer.points)}`).join(" / ")
-          : "飛ばし点なし";
-        const yakumanRows = yakumans.map((record) => `
-          <div class="yakuman-history-row">
-            <strong>${escapeHtml(getMemberName(record.winner_member_id))}</strong>
-            <span>${escapeHtml(record.yakuman_name)}</span>
-            <small>${record.win_type === "tsumo" ? "ツモ" : `ロン：${escapeHtml(getMemberName(record.houjuu_member_id))}`}</small>
-          </div>
-        `).join("");
-        return `
-          <article class="hanchan-history-card">
-            <div class="hanchan-history-heading">
-              <div><strong>第${hanchan.sequence_no}半荘</strong><small>ウマ：${hanchan.uma.join(" / ")}</small></div>
-              <div class="record-action-list">
-                <button type="button" class="record-edit-button" data-edit-hanchan-id="${hanchan.id}">編集</button>
-                ${session.status === "open" ? `<button type="button" class="record-delete-button" data-delete-hanchan-id="${hanchan.id}">削除</button>` : ""}
-              </div>
-            </div>
-            <div class="history-result-list">${resultRows}</div>
-            <p class="history-transfer-note">${transferText}</p>
-            ${yakumanRows ? `<section class="yakuman-history-list"><p>役満記録</p>${yakumanRows}</section>` : ""}
-            ${hanchan.notes ? `<p class="history-note">${escapeHtml(hanchan.notes)}</p>` : ""}
-          </article>
-        `;
-      }).join("")
-    : `<div class="game-empty-result">まだ半荘が登録されていません。</div>`;
+  const sortedHanchans = [...activeHanchans].sort((a, b) => num(a.sequence_no) - num(b.sequence_no));
+  if (sortedHanchans.length) {
+    const exists = sortedHanchans.some((hanchan) => hanchan.id === selectedHanchanDetailId);
+    if (!exists) selectedHanchanDetailId = sortedHanchans[sortedHanchans.length - 1].id;
+  } else {
+    selectedHanchanDetailId = null;
+  }
+  const selectedHanchan = sortedHanchans.find((hanchan) => hanchan.id === selectedHanchanDetailId) || null;
+  const selectedHanchanDetail = selectedHanchan
+    ? buildSelectedHanchanDetail(selectedHanchan, session)
+    : `<div class="game-empty-result">まだ半荘が登録されていません。半荘を追加すると、スコア表から各半荘の詳細を開けます。</div>`;
 
   const scoreRows = totals.map((item) => `
     <div class="daily-total-row">
@@ -1444,22 +1419,25 @@ function renderActiveSessionView() {
         <div class="game-section-heading">
           <div>
             <p class="game-section-title">スコア表</p>
-            <p class="game-section-note">半荘を登録するたびに行が追加され、持ち点・順位・半荘収支を一覧できます。</p>
+            <p class="game-section-note">半荘を登録するたびに行が追加されます。第1・第2などを押すと、その半荘の詳細表示・編集へ進めます。</p>
           </div>
         </div>
         ${sessionScoreSheet}
       </section>
 
-      <section class="game-section">
+      <section class="game-section hanchan-detail-section">
         <div class="game-section-heading">
-          <p class="game-section-title">半荘記録</p>
+          <div>
+            <p class="game-section-title">半荘詳細</p>
+            <p class="game-section-note">スコア表の第1・第2などを押すと、表示する半荘を切り替えられます。</p>
+          </div>
           ${session.status === "open"
             ? `<button id="toggleHanchanEditorButton" class="secondary-button" type="button">${showHanchanEditor ? "入力を閉じる" : "＋ 半荘を追加"}</button>`
             : showHanchanEditor
               ? `<button id="toggleHanchanEditorButton" class="secondary-button" type="button">編集を閉じる</button>`
               : ""}
         </div>
-        <div class="hanchan-history-list">${hanchanCards}</div>
+        ${selectedHanchanDetail}
       </section>
       ${showHanchanEditor ? renderHanchanEditor() : ""}
 
@@ -1558,6 +1536,15 @@ function renderActiveSessionView() {
     button.addEventListener("click", () => {
       const route = routes[Number(button.dataset.registerRouteIndex)];
       if (route) void openSettlementDebtModal(route);
+    });
+  });
+  document.querySelectorAll("[data-select-hanchan-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedHanchanDetailId = button.dataset.selectHanchanId;
+      showHanchanEditor = false;
+      editingHanchanId = null;
+      hanchanDraft = null;
+      renderActiveSessionView();
     });
   });
   document.querySelectorAll("[data-edit-hanchan-id]").forEach((button) => {
@@ -1996,6 +1983,7 @@ async function addMatchHanchan(e) {
       ? `第${getEditingHanchan()?.sequence_no || ""}半荘を更新しました。`
       : `第${activeHanchans.length + 1}半荘を登録しました。`;
 
+    selectedHanchanDetailId = isEditing ? editingHanchanId : null;
     showHanchanEditor = false;
     editingHanchanId = null;
     hanchanDraft = null;
@@ -2092,6 +2080,7 @@ async function deleteMatchHanchan(hanchanId) {
   try {
     markLocalRealtimeWrite(); const { error } = await supabaseClient.rpc("delete_match_hanchan", { p_hanchan_id: hanchanId });
     if (error) throw error;
+    if (selectedHanchanDetailId === hanchanId) selectedHanchanDetailId = null;
     gameMessage = "半荘記録を削除しました。";
     await loadMatchSessions();
   } catch (error) {
@@ -2328,6 +2317,45 @@ function buildSessionProgressTrend() {
 }
 
 
+function buildSelectedHanchanDetail(hanchan, session) {
+  const results = getHanchanResults(hanchan.id);
+  const transfers = getHanchanTransfers(hanchan.id);
+  const yakumans = getHanchanYakumans(hanchan.id);
+  const resultRows = results.map((result) => {
+    const samePointResults = results.filter((item) => Number(item.final_points) === Number(result.final_points));
+    const rankLabel = samePointResults.length > 1
+      ? `${Math.min(...samePointResults.map((item) => Number(item.rank)))}位同着`
+      : `${result.rank}位`;
+    return `<div class="history-result-row">
+      <span>${rankLabel} ${escapeHtml(getMemberName(result.member_id))}</span>
+      <strong>${formatScoreMarkup(result.total_points)}</strong>
+    </div>`;
+  }).join("");
+  const transferText = transfers.length
+    ? transfers.map((transfer) => `${escapeHtml(getMemberName(transfer.from_member_id))} → ${escapeHtml(getMemberName(transfer.to_member_id))} ${formatScore(transfer.points)}`).join(" / ")
+    : "飛ばし点なし";
+  const yakumanRows = yakumans.map((record) => `
+    <div class="yakuman-history-row">
+      <strong>${escapeHtml(getMemberName(record.winner_member_id))}</strong>
+      <span>${escapeHtml(record.yakuman_name)}</span>
+      <small>${record.win_type === "tsumo" ? "ツモ" : `ロン：${escapeHtml(getMemberName(record.houjuu_member_id))}`}</small>
+    </div>
+  `).join("");
+  return `<article class="hanchan-history-card hanchan-detail-card">
+    <div class="hanchan-history-heading">
+      <div><strong>第${hanchan.sequence_no}半荘</strong><small>ウマ：${hanchan.uma.join(" / ")}</small></div>
+      <div class="record-action-list">
+        <button type="button" class="record-edit-button" data-edit-hanchan-id="${hanchan.id}">編集</button>
+        ${session.status === "open" ? `<button type="button" class="record-delete-button" data-delete-hanchan-id="${hanchan.id}">削除</button>` : ""}
+      </div>
+    </div>
+    <div class="history-result-list">${resultRows}</div>
+    <p class="history-transfer-note">${transferText}</p>
+    ${yakumanRows ? `<section class="yakuman-history-list"><p>役満記録</p>${yakumanRows}</section>` : ""}
+    ${hanchan.notes ? `<p class="history-note">${escapeHtml(hanchan.notes)}</p>` : ""}
+  </article>`;
+}
+
 function buildSessionScoreSheet() {
   const members = [...activeMatchMembers].map((member) => ({
     memberId: member.member_id,
@@ -2354,15 +2382,14 @@ function buildSessionScoreSheet() {
       const rankLabel = samePointResults.length > 1
         ? `${Math.min(...samePointResults.map((item) => Number(item.rank)))}位同着`
         : `${result.rank}位`;
-      const finalPointText = Number(result.final_points).toLocaleString();
       return `<td class="score-sheet-cell">
         <span class="score-sheet-rank">${escapeHtml(rankLabel)}</span>
-        <strong>${finalPointText}</strong>
-        <small>${formatScoreMarkup(result.total_points)}</small>
+        <strong>${formatScoreMarkup(result.total_points)}</strong>
       </td>`;
     }).join("");
-    return `<tr>
-      <th scope="row">第${hanchan.sequence_no}</th>
+    const selectedClass = hanchan.id === selectedHanchanDetailId ? " selected" : "";
+    return `<tr class="score-sheet-hanchan-row${selectedClass}">
+      <th scope="row"><button type="button" class="score-sheet-round-button" data-select-hanchan-id="${hanchan.id}">第${hanchan.sequence_no}</button></th>
       ${cells}
     </tr>`;
   }).join("");
@@ -2373,7 +2400,7 @@ function buildSessionScoreSheet() {
     return `<td class="score-sheet-total-cell"><strong>${formatChipMarkup(chipCount)}</strong><small>${formatScoreMarkup(chipPoint)}</small></td>`;
   }).join("");
   return `<div class="score-sheet-scroll" aria-label="半荘別スコア表">
-    <table class="session-score-sheet">
+    <table class="session-score-sheet" style="--score-sheet-members: ${members.length};">
       <thead>
         <tr>
           <th scope="col">半荘</th>
