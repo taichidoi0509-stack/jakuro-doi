@@ -367,6 +367,7 @@ function createHanchanDraftFromRecord(hanchanId) {
   };
 }
 function startEditHanchan(hanchanId) {
+  if (!allowEditorChangeV72()) return;
   selectedHanchanDetailId = hanchanId;
   editingHanchanId = hanchanId;
   hanchanDraft = createHanchanDraftFromRecord(hanchanId);
@@ -1344,7 +1345,7 @@ function renderCreateSessionView() {
   const memberChoices = activeGroupMembers.map((m) => `<label class="game-member-choice ${sessionDraft.memberIds.includes(m.id) ? "selected" : ""}"><input type="checkbox" data-session-member-id="${m.id}" ${sessionDraft.memberIds.includes(m.id) ? "checked" : ""}><span><strong>${escapeHtml(m.display_name)}</strong><small>${m.role === "admin" ? "管理者" : m.user_id ? "連携済み" : "ゲスト"}</small></span></label>`).join("");
   const umaInputs = sessionDraft.defaultUma.map((value, i) => `<label>${i+1}位<input type="number" step="0.1" data-session-uma-index="${i}" value="${value}"></label>`).join("");
   const rateOptions = RATE_PRESETS.map((item) => `<option value="${item.label}" ${sessionDraft.rateLabel === item.label ? "selected" : ""}>${item.label}${item.multiplier !== null ? `（収支1 = ${item.multiplier} pt）` : ""}</option>`).join("");
-  page.innerHTML = `<section class="game-card"><div class="game-card-heading"><div><p class="eyebrow">NEW DAILY SESSION</p><h2>1日の麻雀会を作成</h2></div>${sessionList.length ? `<button id="backToSessionButton" class="icon-text-button" type="button">戻る</button>` : ""}</div><p class="game-description">ゲーム収支は1,000点単位で記録します。レートは「ゲーム収支1を何ptとして精算するか」を保存します。テンサンは収支1 = 30ptです。</p><form id="createSessionForm"><section class="game-section"><p class="game-section-title">対局形式</p><div class="mode-preset-grid">${Object.entries(MODE_PRESETS).map(([mode, option]) => `<button type="button" class="mode-preset-button ${sessionDraft.gameMode === mode ? "active" : ""}" data-session-mode="${mode}"><strong>${option.label}</strong><small>${option.playerCount}人・初期${option.startingPoints.toLocaleString()}点</small></button>`).join("")}</div></section><section class="game-section"><p class="game-section-title">基本設定</p><div class="game-settings-grid"><label>日付<input type="date" data-session-field="sessionDate" value="${sessionDraft.sessionDate}"></label><label>レート区分<select data-session-field="rateLabel">${rateOptions}</select></label><label>初期持ち点<input type="number" step="100" data-session-field="startingPoints" value="${sessionDraft.startingPoints}"></label><label>チップ単価（1枚あたり）<input type="number" min="0" step="0.1" data-session-field="chipValue" value="${sessionDraft.chipValue}"></label></div>${sessionDraft.rateLabel === "カスタム" ? `<div class="game-settings-grid custom-rate-grid"><label>カスタム名<input type="text" maxlength="40" data-session-field="customRateLabel" value="${escapeHtml(sessionDraft.customRateLabel)}" placeholder="例：特別レート"></label><label>レート倍率（pt / 収支1）<input type="number" min="0.01" max="10000" step="0.01" data-session-field="rateMultiplier" value="${sessionDraft.rateMultiplier}"></label></div>` : `<p class="selected-rate-note">選択中：<strong>収支1 = ${sessionDraft.rateMultiplier} pt</strong></p>`}${renderRuleFieldsV70()}<label class="toggle-row"><input type="checkbox" data-session-field="tobiEnabled" ${sessionDraft.tobiEnabled ? "checked" : ""}><span><strong>飛ばし点を使う</strong><small>飛ばした人・飛ばされた人ごとの移動を半荘ごとに記録します。</small></span></label></section><section class="game-section"><p class="game-section-title">基本ウマ</p><div class="uma-grid">${umaInputs}</div><p class="game-section-note">半荘ごとにも変更できます。</p></section><section class="game-section"><div class="game-section-heading"><p class="game-section-title">参加者を選択</p><span class="selection-counter">${sessionDraft.memberIds.length} / ${preset.playerCount}人</span></div><div class="game-member-grid">${memberChoices}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="3" data-session-field="notes">${escapeHtml(sessionDraft.notes)}</textarea></section><p id="createSessionMessage" class="game-form-message"></p><button id="createSessionButton" class="save-game-button" type="submit">この日の記録を開始</button></form></section>`;
+  page.innerHTML = `<section class="game-card"><div class="game-card-heading"><div><p class="eyebrow">NEW DAILY SESSION</p><h2>対局を作成</h2></div>${sessionList.length ? `<button id="backToSessionButton" class="icon-text-button" type="button">戻る</button>` : ""}</div><p class="game-description">形式・ルール・参加者を選んで開始します。</p><form id="createSessionForm"><section class="game-section"><p class="game-section-title">対局形式</p><div class="mode-preset-grid">${Object.entries(MODE_PRESETS).map(([mode, option]) => `<button type="button" class="mode-preset-button ${sessionDraft.gameMode === mode ? "active" : ""}" data-session-mode="${mode}"><strong>${option.label}</strong><small>${option.playerCount}人・初期${option.startingPoints.toLocaleString()}点</small></button>`).join("")}</div></section><section class="game-section"><p class="game-section-title">基本設定</p><div class="game-settings-grid"><label>日付<input type="date" data-session-field="sessionDate" value="${sessionDraft.sessionDate}"></label><label>レート区分<select data-session-field="rateLabel">${rateOptions}</select></label><label>初期持ち点<input type="number" step="100" data-session-field="startingPoints" value="${sessionDraft.startingPoints}"></label><label>チップ単価（1枚あたり）<input type="number" min="0" step="0.1" data-session-field="chipValue" value="${sessionDraft.chipValue}"></label></div>${sessionDraft.rateLabel === "カスタム" ? `<div class="game-settings-grid custom-rate-grid"><label>カスタム名<input type="text" maxlength="40" data-session-field="customRateLabel" value="${escapeHtml(sessionDraft.customRateLabel)}" placeholder="例：特別レート"></label><label>レート倍率（pt / 収支1）<input type="number" min="0.01" max="10000" step="0.01" data-session-field="rateMultiplier" value="${sessionDraft.rateMultiplier}"></label></div>` : `<p class="selected-rate-note">選択中：<strong>収支1 = ${sessionDraft.rateMultiplier} pt</strong></p>`}${renderRuleFieldsV70()}<label class="toggle-row"><input type="checkbox" data-session-field="tobiEnabled" ${sessionDraft.tobiEnabled ? "checked" : ""}><span><strong>飛ばし点を使う</strong><small>飛ばした人・飛ばされた人ごとの移動を半荘ごとに記録します。</small></span></label></section><section class="game-section"><p class="game-section-title">基本ウマ</p><div class="uma-grid">${umaInputs}</div><p class="game-section-note">半荘ごとにも変更できます。</p></section><section class="game-section"><div class="game-section-heading"><p class="game-section-title">参加者を選択</p><span class="selection-counter">${sessionDraft.memberIds.length} / ${preset.playerCount}人</span></div><div class="game-member-grid">${memberChoices}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="3" data-session-field="notes">${escapeHtml(sessionDraft.notes)}</textarea></section><p id="createSessionMessage" class="game-form-message"></p><button id="createSessionButton" class="save-game-button" type="submit">この日の記録を開始</button></form></section>`;
   document.getElementById("backToSessionButton")?.addEventListener("click", () => { showCreateSession = false; renderMatchPage(); });
   document.querySelectorAll("[data-session-mode]").forEach((button) => button.addEventListener("click", () => { const next = button.dataset.sessionMode, nextPreset = getModePreset(next), kept = sessionDraft.memberIds.slice(0, nextPreset.playerCount); sessionDraft = createDefaultSessionDraft(next); sessionDraft.memberIds = kept; renderCreateSessionView(); }));
   document.querySelectorAll("[data-session-field]").forEach((input) => { const ev = input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input"; input.addEventListener(ev, () => { const field = input.dataset.sessionField; if (field === "tobiEnabled") { sessionDraft.tobiEnabled = input.checked; return; } if (["sessionDate", "rateLabel", "notes", "customRateLabel"].includes(field)) { sessionDraft[field] = input.value; if (field === "rateLabel") { const rate = getRatePreset(input.value); if (rate?.multiplier !== null) sessionDraft.rateMultiplier = rate.multiplier; renderCreateSessionView(); } return; } sessionDraft[field] = num(input.value); }); });
@@ -1444,7 +1445,7 @@ function renderActiveSessionView() {
   const venueStatusClass = fee > 0 || activeVenuePrepayments.length ? (venueReady ? "ok" : "warn") : "idle";
   const liveHanchanLabel = showHanchanEditor
     ? editingHanchanId ? "半荘編集を閉じる" : "半荘入力を閉じる"
-    : session.status === "open" ? `第${nextHanchanNo}半荘を登録` : editingHanchanId ? "編集中" : "精算済み";
+    : session.status === "open" ? `＋ 第${nextHanchanNo}半荘を記録` : editingHanchanId ? "編集中" : "精算済み";
   const liveEditorPanel = `${showHanchanEditor ? renderHanchanEditor() : ""}${showChipEditor ? renderChipEditor() : ""}${showVenueEditor ? renderVenueEditor() : ""}`;
 
   page.innerHTML = `
@@ -1454,8 +1455,8 @@ function renderActiveSessionView() {
         <span class="session-status ${session.status}">${session.status === "settled" ? "精算済み" : "進行中"}</span>
       </div>
       <div class="session-selector-row">
-        <select id="sessionSelect" class="session-select">${sessionOptions}</select>
-        <button id="newSessionButton" class="secondary-button" type="button">＋ 新しい日</button>
+        <select id="sessionSelect" class="session-select" aria-label="表示する対局日">${sessionOptions}</select>
+        <button id="newSessionButton" class="secondary-button" type="button">＋ 新しい対局</button>
         <button id="deleteSessionButton" class="danger-outline-button" type="button">この日を削除</button>
       </div>
       <div class="session-info-grid">
@@ -1471,7 +1472,7 @@ function renderActiveSessionView() {
           <div>
             <p class="eyebrow">LIVE INPUT</p>
             <p class="game-section-title">対局中の入力</p>
-            <p class="game-section-note">半荘登録・チップ・場代・精算をここから操作します。対局中はこのエリアだけ見れば進められます。</p>
+            <p class="game-section-note">半荘終了後に、全員の持ち点を入力してください。</p>
           </div>
           <span class="session-status ${session.status}">${session.status === "settled" ? "精算済み" : "入力中"}</span>
         </div>
@@ -1571,13 +1572,17 @@ function renderActiveSessionView() {
     </section>
   `;
 
+  organizeSessionV72(page);
+
   document.getElementById("sessionSelect").addEventListener("change", async (event) => {
+    if (!allowEditorChangeV72()) { event.target.value = activeMatchSessionId; return; }
     activeMatchSessionId = event.target.value;
     localStorage.setItem("jakuroku-active-match-session-id", activeMatchSessionId);
     resetMatchViewState();
     await loadMatchSessions();
   });
   document.getElementById("newSessionButton").addEventListener("click", () => {
+    if (!allowEditorChangeV72()) return;
     resetMatchViewState();
     sessionDraft = createDefaultSessionDraft("sanma");
     showCreateSession = true;
@@ -1585,19 +1590,24 @@ function renderActiveSessionView() {
   });
   document.getElementById("deleteSessionButton").addEventListener("click", deleteActiveMatchSession);
   document.getElementById("toggleHanchanEditorButton")?.addEventListener("click", () => {
+    if (!allowEditorChangeV72()) return;
     if (showHanchanEditor) {
       showHanchanEditor = false;
       editingHanchanId = null;
       hanchanDraft = null;
     } else {
+      showChipEditor = false; showVenueEditor = false;
       editingHanchanId = null;
       hanchanDraft = createDefaultHanchanDraft();
       showHanchanEditor = true;
     }
     renderActiveSessionView();
+    requestAnimationFrame(()=>document.querySelector(".hanchan-editor")?.scrollIntoView({block:"start",behavior:"smooth"}));
   });
   document.getElementById("toggleChipEditorButton")?.addEventListener("click", () => {
+    if (!allowEditorChangeV72()) return;
     showChipEditor = !showChipEditor;
+    if (showChipEditor) { showHanchanEditor = false; showVenueEditor = false; }
     if (showChipEditor) {
       chipDraft = {};
       chipTouchedMemberIds = new Set();
@@ -1605,17 +1615,22 @@ function renderActiveSessionView() {
       activeMatchMembers.forEach((member) => { chipDraft[member.member_id] = getChipCount(member.member_id); });
     }
     renderActiveSessionView();
+    requestAnimationFrame(()=>document.querySelector(".chip-editor")?.scrollIntoView({block:"start",behavior:"smooth"}));
   });
   document.getElementById("toggleVenueEditorButton")?.addEventListener("click", () => {
+    if (!allowEditorChangeV72()) return;
     showVenueEditor = !showVenueEditor;
+    if (showVenueEditor) { showHanchanEditor = false; showChipEditor = false; }
     if (showVenueEditor) {
       venueDraft = { total: fee, prepayments: {} };
       activeMatchMembers.forEach((member) => { venueDraft.prepayments[member.member_id] = getVenuePrepayment(member.member_id); });
     }
     renderActiveSessionView();
+    requestAnimationFrame(()=>document.querySelector(".venue-editor")?.scrollIntoView({block:"start",behavior:"smooth"}));
   });
   document.getElementById("settleSessionButton")?.addEventListener("click", settleMatchSession);
   document.getElementById("jumpFinalSettlementButton")?.addEventListener("click", () => {
+    selectSessionViewV72("settlement");
     document.getElementById("finalSettlementSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   document.getElementById("openResultShareCardButton")?.addEventListener("click", () => {
@@ -1629,11 +1644,15 @@ function renderActiveSessionView() {
   });
   document.querySelectorAll("[data-select-hanchan-id]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!allowEditorChangeV72()) return;
+      sessionViewV72 = "score";
       selectedHanchanDetailId = button.dataset.selectHanchanId;
       showHanchanEditor = false;
       editingHanchanId = null;
       hanchanDraft = null;
       renderActiveSessionView();
+      const detail = document.querySelector(".session-hand-details"); if (detail) detail.open = true;
+      detail?.scrollIntoView({block:"nearest"});
     });
   });
   document.querySelectorAll("[data-edit-hanchan-id]").forEach((button) => {
@@ -1841,7 +1860,7 @@ function renderHanchanEditor() {
     const r = hanchanDraft.results[m.member_id];
     const c = calculateDraftHanchanResult(m.member_id);
     const rankLabel = !rankState.complete
-      ? "持ち点入力後に確定"
+      ? "自動"
       : !rankState.valid
         ? `順位を1〜${activeMatchMembers.length}位で重複なく指定`
         : hanchanDraft.rankMode === "manual"
@@ -1852,14 +1871,14 @@ function renderHanchanEditor() {
     const rankControl = showManualRankControl
       ? `<label>順位<select data-hanchan-manual-rank-member-id="${m.member_id}">${Array.from({ length: activeMatchMembers.length }, (_, index) => `<option value="${index + 1}" ${Number(r.rank) === index + 1 ? "selected" : ""}>${index + 1}位</option>`).join("")}</select></label>`
       : `<label>順位<output class="auto-rank-output ${!rankState.valid && rankState.complete ? "error" : ""}" data-hanchan-rank-member-id="${m.member_id}">${rankLabel}</output></label>`;
-    return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" inputmode="text" enterkeyhint="next" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
+    return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" inputmode="text" enterkeyhint="next" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="${num(activeMatchSession.starting_points)}"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
   }).join("");
   const transfers = renderTobiTransferRows();
   const tobiMembers = getTobiMembersFromDraft();
   const autoTobiPanel = renderAutoTobiPanelMarkup();
   const yakumans = hanchanDraft.yakumanRecords.map((r,i) => `<article class="yakuman-entry-card"><div class="yakuman-entry-heading"><strong>役満 ${i+1}</strong><button type="button" class="remove-transfer-button" data-remove-yakuman-index="${i}">削除</button></div><div class="yakuman-entry-grid"><label>役満<select data-yakuman-index="${i}" data-yakuman-field="yakumanName">${YAKUMAN_OPTIONS.map((name) => `<option value="${name}" ${r.yakumanName === name ? "selected" : ""}>${name}</option>`).join("")}</select></label>${r.yakumanName === "その他" ? `<label>役満名<input type="text" maxlength="60" value="${escapeHtml(r.customName)}" data-yakuman-index="${i}" data-yakuman-field="customName"></label>` : ""}<label>あがった人<select data-yakuman-index="${i}" data-yakuman-field="winnerMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.winnerMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>あがり方<select data-yakuman-index="${i}" data-yakuman-field="winType"><option value="tsumo" ${r.winType === "tsumo" ? "selected" : ""}>ツモ</option><option value="ron" ${r.winType === "ron" ? "selected" : ""}>ロン</option></select></label>${r.winType === "ron" ? `<label>放銃者<select data-yakuman-index="${i}" data-yakuman-field="houjuuMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.houjuuMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label>` : ""}</div></article>`).join("");
   const balanceText = balance.complete ? balance.difference === 0 ? `最終持ち点合計：${balance.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${balance.total.toLocaleString()}点 / 差額 ${balance.difference > 0 ? "+" : ""}${balance.difference.toLocaleString()}点` : `最終持ち点入力：${balance.enteredCount} / ${activeMatchMembers.length}人`;
-  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">全員の持ち点を入力してください。順位と同着時のウマは自動計算します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><details class="game-section entry-options"><summary>順位点・メモを確認／変更</summary><p class="game-section-title">順位点（ウマ・オカ合算）</p><div class="uma-grid">${uma}</div><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></details><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
+  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">全員の持ち点を入力してください。順位と同着時のウマは自動計算します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 10点を移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 5点を移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><details class="game-section entry-options"><summary>順位点・メモを確認／変更</summary><p class="game-section-title">順位点（ウマ・オカ合算）</p><div class="uma-grid">${uma}</div><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></details><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
 }
 function bindTobiTransferEvents(root = document) {
   root.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => {
@@ -1927,12 +1946,13 @@ function refreshAutoRankOutputs() {
   activeMatchMembers.forEach((member) => {
     const output = document.querySelector(`[data-hanchan-rank-member-id="${member.member_id}"]`);
     if (!output) return;
-    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.tieGroups?.some((group) => group.memberIds.includes(member.member_id)) ? `${state.displayRanks?.[member.member_id] || state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
+    output.textContent = !state.complete ? "自動" : !state.valid ? "順位を確認" : state.tieGroups?.some((group) => group.memberIds.includes(member.member_id)) ? `${state.displayRanks?.[member.member_id] || state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
     output.classList.toggle("error", Boolean(state.complete && !state.valid));
   });
 }
 function refreshAutoTobiPanel(force = false) {
   const tobiMembers = getTobiMembersFromDraft();
+  if(tobiMembers.length) { const details=document.getElementById("autoTobiPanelHost")?.closest("details"); if(details) details.open=true; }
   const nextSignature = tobiMembers.map((member) => member.member_id).sort().join("|");
   const host = document.getElementById("autoTobiPanelHost");
   const note = document.getElementById("autoTobiNote");
@@ -1994,7 +2014,8 @@ function refreshHanchanPreview() {
   if (!box || !hanchanDraft) return;
   const complete = activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id));
   const total = complete ? activeMatchMembers.reduce((sum, member) => sum + calculateDraftHanchanResult(member.member_id).totalPoints, 0) : null;
-  box.innerHTML = `<p class="game-preview-title">この半荘の収支プレビュー</p><div class="preview-list">${activeMatchMembers.map((member) => `<div class="preview-row"><span>${escapeHtml(getMemberName(member.member_id))}</span><strong>${formatScoreMarkup(calculateDraftHanchanResult(member.member_id).totalPoints)}</strong></div>`).join("")}</div><div class="preview-footer"><span>合計</span><strong>${formatScoreMarkup(total)}</strong></div>`;
+  const wasOpen=box.querySelector("details")?.open;
+  box.innerHTML = `<details class="plain-details" ${wasOpen ? "open" : ""}><summary>収支の計算を確認</summary><div class="preview-list">${activeMatchMembers.map((member) => `<div class="preview-row"><span>${escapeHtml(getMemberName(member.member_id))}</span><strong>${formatScoreMarkup(calculateDraftHanchanResult(member.member_id).totalPoints)}</strong></div>`).join("")}</div><div class="preview-footer"><span>合計</span><strong>${formatScoreMarkup(total)}</strong></div></details>`;
 }
 function getEffectiveUmaForSave(rankState) {
   const effective = hanchanDraft.uma.map(num);
@@ -2508,8 +2529,8 @@ function buildSessionScoreSheet() {
         ${rowHtml}
       </tbody>
       <tfoot>
-        <tr class="score-sheet-total-row"><th scope="row">Total</th>${totalCells}</tr>
-        <tr class="score-sheet-chip-row"><th scope="row">Chip</th>${chipCells}</tr>
+        <tr class="score-sheet-total-row"><th scope="row">合計</th>${totalCells}</tr>
+        <tr class="score-sheet-chip-row"><th scope="row">チップ</th>${chipCells}</tr>
       </tfoot>
     </table>
   </div>`;
@@ -4247,6 +4268,7 @@ function injectMatchTemplateChooser() {
     ${selected ? `<p class="template-selected-summary"><strong>選択中：</strong>${escapeHtml(selected.name)}<span>${templateSummaryHtml(selected)}</span></p>` : `<p class="template-selected-summary empty">テンプレートを選ぶと、基本設定を一括で反映できます。</p>`}
     ${templateMessage ? `<p class="template-message">${escapeHtml(templateMessage)}</p>` : ""}`;
 
+  foldSectionV72(section, "保存した設定を使う・保存する", !!selected || !!templateMessage);
   form.prepend(section);
 
   const select = section.querySelector("#matchTemplateSelect");
@@ -5420,7 +5442,7 @@ function injectVenueCreateSection() {
           p_venue_id: selectedVenueId
         });
         if (error) throw error;
-        await recordVenueActivity(`新しい日次記録に会場「${getMatchVenueName(selectedVenueId)}」を設定しました。`, "session", createdSessionId, { venue_id: selectedVenueId });
+        await recordVenueActivity(`別の日を記録次記録に会場「${getMatchVenueName(selectedVenueId)}」を設定しました。`, "session", createdSessionId, { venue_id: selectedVenueId });
         await loadMatchSessions();
       } catch (error) {
         alert(`日次記録は作成しましたが、会場を設定できませんでした。\n${error.message || ""}`);
@@ -5447,7 +5469,9 @@ function injectActiveSessionVenueSection() {
     </div>
     ${currentVenue?.note ? `<p class="venue-note-display">${escapeHtml(currentVenue.note)}</p>` : ""}
   `;
-  if (costSection) costSection.insertAdjacentElement("beforebegin", section);
+  const information = page.querySelector(".session-information .plain-details-content");
+  if (information) information.append(section);
+  else if (costSection) costSection.insertAdjacentElement("beforebegin", section);
   else page.querySelector(".game-card")?.append(section);
 
   section.querySelector("#saveActiveSessionVenueButton")?.addEventListener("click", async (event) => {
@@ -7354,19 +7378,9 @@ function buildHomeDashboardV35() {
       <section class="home-summary-grid">
         <button type="button" class="home-summary-card" data-v35-action="history"><span>最近の対局</span><strong>${sessions.length}<small>日</small></strong><em>${latestSession ? `直近 ${formatDate(latestSession.session_date)}` : "まだ記録なし"}</em></button>
         <button type="button" class="home-summary-card" data-v35-action="debt"><span>未精算の借pt</span><strong>${formatPtPlain(unsettledDebt)}</strong><em>${state.openDebts.length ? `${state.openDebts.length}件の精算待ち` : "未精算なし"}</em></button>
-        <button type="button" class="home-summary-card" data-v35-action="feedback"><span>未対応の意見</span><strong>${feedbackOpen}<small>件</small></strong><em>${feedbackOpen ? "確認・対応が必要" : "未対応なし"}</em></button>
-        <button type="button" class="home-summary-card" data-v35-action="ranking"><span>精算済み対局</span><strong>${settledCount}<small>日</small></strong><em>成績・推移を確認</em></button>
       </section>
 
-      <section class="home-action-panel">
-        <div class="home-section-heading"><div><p class="eyebrow">QUICK ACTIONS</p><h3>よく使う操作</h3></div></div>
-        <div class="home-action-grid">
-          <button type="button" class="home-action-card primary" data-v35-action="new-session"><span>＋</span><strong>対局を作成</strong><small>新しい麻雀会を始める</small></button>
-          <button type="button" class="home-action-card" data-v35-action="history"><span>歴</span><strong>対局履歴</strong><small>過去の記録を探す</small></button>
-          <button type="button" class="home-action-card" data-v35-action="debt"><span>借</span><strong>借ptを確認</strong><small>支払い・受け取りを管理</small></button>
-          <button type="button" class="home-action-card" data-v35-action="feedback"><span>声</span><strong>意見を送る</strong><small>要望・不具合を共有</small></button>
-        </div>
-      </section>
+      ${openSession ? '<div class="match-entry-actions"><button type="button" class="secondary-button" data-v35-action="new-session">別の対局を作成</button></div>' : ''}
 
       <section class="home-recent-panel">
         <div class="home-section-heading"><div><p class="eyebrow">RECENT MATCHES</p><h3>最近の対局</h3></div><button type="button" class="home-text-action" data-v35-action="history">すべて見る</button></div>
@@ -7636,20 +7650,7 @@ function buildMatchDashboardV36() {
 
       ${primaryMarkup}
 
-      <section class="match-dashboard-stats" aria-label="対局の状況">
-        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>最近7日</span><strong>${recentWeekCount}<small>日</small></strong><em>記録を確認</em></button>
-        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>精算済み</span><strong>${settledCount}<small>日</small></strong><em>履歴から探す</em></button>
-        <button type="button" class="match-dashboard-stat" data-v36-action="history"><span>全対局</span><strong>${sessions.length}<small>日</small></strong><em>カレンダーで見る</em></button>
-      </section>
-
-      <section class="match-dashboard-command-panel">
-        <div class="match-dashboard-section-heading"><div><p class="eyebrow">START HERE</p><h3>目的から選ぶ</h3></div></div>
-        <div class="match-dashboard-command-grid">
-          <button type="button" class="match-dashboard-command primary" data-v36-action="new-session"><span>＋</span><strong>対局を作成</strong><small>新しい麻雀会を開始</small></button>
-          <button type="button" class="match-dashboard-command" data-v36-action="history"><span>歴</span><strong>対局履歴</strong><small>カレンダー・条件検索</small></button>
-          <button type="button" class="match-dashboard-command" data-v36-action="open-current"><span>入</span><strong>${openSession ? "入力を再開" : "直近記録を開く"}</strong><small>${openSession ? "進行中の対局へ戻る" : "最近の対局を確認"}</small></button>
-        </div>
-      </section>
+      <div class="match-entry-actions">${openSession ? '<button type="button" class="secondary-button" data-v36-action="new-session">別の対局を作成</button>' : ''}<button type="button" class="secondary-button" data-v36-action="history">履歴を探す</button></div>
 
       <section class="match-dashboard-recent-panel">
         <div class="match-dashboard-section-heading"><div><p class="eyebrow">RECENT</p><h3>最近の対局</h3></div><button type="button" class="match-dashboard-text-action" data-v36-action="history">すべて見る</button></div>
@@ -8061,18 +8062,13 @@ function buildAnalyticsDashboardV41() {
   page.innerHTML = `
     <section class="v41-dashboard v41-analytics-dashboard">
       <header class="v41-dashboard-heading">
-        <div><p class="eyebrow">ANALYTICS</p><h2>成績を確認</h2><p>まず全体像を見て、必要な分析へ進みます。</p></div>
+        <div><p class="eyebrow">ANALYTICS</p><h2>成績を確認</h2><p>ランキング・自分の成績・会場別の記録。</p></div>
         <span class="v41-dashboard-badge">精算済み ${settled.length}日</span>
       </header>
-      <section class="v41-feature-hero">
-        <div><span class="v41-feature-icon">↗</span><p>RANKING</p><h3>ランキング・成績詳細</h3><small>総合pt、素点pt、チップ、形式別・レート別の成績を確認します。</small></div>
-        <button type="button" data-v41-go-ranking>ランキングを見る</button>
-      </section>
       <section class="v41-dashboard-grid">
         <button type="button" class="v41-dashboard-tile" data-v41-go-ranking><span>☷</span><strong>総合ランキング</strong><small>期間・形式・レートで絞り込み</small></button>
         <button type="button" class="v41-dashboard-tile" data-v41-go-venue><span>⌂</span><strong>会場別集計</strong><small>会場ごとの対局数・場代・成績</small></button>
       </section>
-      <section class="v41-recent-section"><div class="v41-section-heading"><div><p class="eyebrow">RECENT SETTLEMENTS</p><h3>最近精算した対局</h3></div><button type="button" data-v41-go-history>履歴を見る</button></div><div class="v41-mini-session-list">${recentMarkup}</div></section>
     </section>
   `;
   page.querySelector("[data-v41-go-ranking]")?.addEventListener("click", () => void openNavigationFeatureV34("ranking"));
@@ -8106,8 +8102,7 @@ function buildSettlementDashboardV41() {
         <span class="v41-dashboard-badge">未精算 ${open.length}件</span>
       </header>
       <section class="v41-feature-hero v41-settlement-hero">
-        <div><span class="v41-feature-icon">⇄</span><p>OPEN BALANCE</p><h3>${formatPtPlain(total)}</h3><small>${open.length ? "未精算の借ptがあります。支払い記録・横流しを管理できます。" : "未精算の借ptはありません。"}</small></div>
-        <button type="button" data-v41-go-debt>借ptを管理</button>
+        <div><span class="v41-feature-icon">⇄</span><p>未精算の合計</p><h3>${formatPtPlain(total)}</h3><small>${open.length ? "未精算の借ptがあります。支払い記録・横流しを管理できます。" : "未精算の借ptはありません。"}</small></div>
       </section>
       <section class="v41-dashboard-grid">
         <button type="button" class="v41-dashboard-tile" data-v41-go-debt><span>⇄</span><strong>借pt一覧</strong><small>支払い・一部支払い・横流し</small></button>
@@ -8133,50 +8128,7 @@ function getSectionTitleV41(section) {
 }
 
 function mountSessionFlowV41() {
-  const page = getPageWorkspace();
-  const gameCard = page.querySelector(".game-card");
-  const session = activeMatchSession;
-  if (!gameCard || !session || gameCard.querySelector(".session-flow-v41")) return;
-
-  const titleToKey = {
-    "半荘記録": "hanchan",
-    "終了時チップ": "chips",
-    "場代精算": "venue",
-    "場代込み最終精算": "settlement"
-  };
-  gameCard.querySelectorAll(":scope > .game-section").forEach((section) => {
-    const key = titleToKey[getSectionTitleV41(section)];
-    if (key) section.dataset.v41FlowSection = key;
-  });
-  const firstSection = gameCard.querySelector("[data-v41-flow-section='hanchan']");
-  const flow = document.createElement("section");
-  flow.className = "session-flow-v41";
-  const completed = {
-    hanchan: activeHanchans.length > 0,
-    chips: hasAllChips(),
-    venue: hasMatchingVenuePrepayments(),
-    settlement: session.status === "settled"
-  };
-  const steps = [
-    ["hanchan", "1", "半荘入力", activeHanchans.length ? `${activeHanchans.length}半荘` : "未入力"],
-    ["chips", "2", "チップ", completed.chips ? "入力済み" : "未入力"],
-    ["venue", "3", "場代", completed.venue ? "照合済み" : "確認待ち"],
-    ["settlement", "4", "精算", completed.settlement ? "確定済み" : "未確定"]
-  ];
-  flow.innerHTML = `
-    <div class="session-flow-heading-v41"><div><p class="eyebrow">SESSION FLOW</p><h3>${session.status === "settled" ? "この日の精算結果" : "この日の入力・精算手順"}</h3></div><small>${session.status === "settled" ? "記録は編集できます" : "上から順に確認すると漏れません"}</small></div>
-    <div class="session-flow-steps-v41">${steps.map(([key, number, label, state]) => `<button type="button" class="session-flow-step-v41 ${completed[key] ? "complete" : ""}" data-v41-flow-go="${key}"><span>${completed[key] ? "✓" : number}</span><strong>${label}</strong><small>${state}</small></button>`).join("")}</div>
-  `;
-  (firstSection || gameCard.querySelector(".session-info-grid"))?.insertAdjacentElement("afterend", flow);
-  flow.querySelectorAll("[data-v41-flow-go]").forEach((button) => button.addEventListener("click", () => {
-    const key = button.dataset.v41FlowGo;
-    const target = gameCard.querySelector(`[data-v41-flow-section='${key}']`);
-    if (!target) return;
-    if (key === "hanchan" && !showHanchanEditor && session.status === "open") document.getElementById("toggleHanchanEditorButton")?.click();
-    if (key === "chips" && !showChipEditor) document.getElementById("toggleChipEditorButton")?.click();
-    if (key === "venue" && !showVenueEditor) document.getElementById("toggleVenueEditorButton")?.click();
-    requestAnimationFrame(() => (gameCard.querySelector(`[data-v41-flow-section='${key}']`) || target).scrollIntoView({ behavior: "smooth", block: "start" }));
-  }));
+  // Retired: duplicate navigation or decorative dashboard UI.
 }
 
 const renderActiveSessionViewBeforeV41 = renderActiveSessionView;
@@ -8238,11 +8190,6 @@ function buildSettingsDashboardV42() {
         <div><p class="eyebrow">SETTINGS</p><h2>設定・管理</h2><p>普段使う設定、データ保全、運用ツールを目的別に分けています。</p></div>
         <span class="v42-role-badge">${admin ? "管理者" : "メンバー"}</span>
       </header>
-      <section class="v42-settings-summary">
-        <div><span>グループ</span><strong>${escapeHtml(getActiveGroup().name)}</strong></div>
-        <div><span>未精算借pt</span><strong>${openDebtCount}件</strong></div>
-        <button type="button" data-v42-go-feedback><span>未対応の意見</span><strong>${unresolvedFeedback}件</strong><b>›</b></button>
-      </section>
       <section class="v42-settings-category">
         <div class="v42-category-heading"><p class="eyebrow">DAILY SETTINGS</p><h3>普段使う</h3><small>参加・会場・対局条件の管理</small></div>
         <div class="hub-menu-list">${groupCards}</div>
@@ -9107,40 +9054,12 @@ function simplifySectionV62(section, title) {
     section.classList.toggle("v62-collapsed", !!shouldCollapse);
   }
 }
-function addPageFocusBarV62(page) {
-  if (!currentSession) return;
-  if (!page || page.querySelector(".v62-focus-bar")) return;
-  let title = "必要な操作だけを先に表示";
-  let text = "詳細情報は必要なときだけ開けます。";
-  const map = {
-    home: ["今日見るべき情報", "新しい対局、未精算、最近の記録だけを先に確認します。"],
-    "hub-game": ["対局の入口", "進行中の対局へ戻るか、新しい対局を作成します。"],
-    game: [showCreateSession ? "新しい対局を作成" : "対局中の操作", showCreateSession ? "形式、設定、参加者、確認の順で進めます。" : "半荘登録・チップ・場代・精算を上から処理します。"],
-    "hub-analysis": ["成績を見る", "ランキング、マイページ、会場別集計を目的別に開きます。"],
-    "hub-settlement": ["未精算を整理", "未精算借ptの確認、まとめ直し、送金済み処理を行います。"],
-    settings: ["管理・設定", "普段使う設定とデータ管理を分けて表示します。"],
-    "my-page": ["自分の状況", "自分の成績、借pt、最近の対局だけをまとめます。"]
-  };
-  if (map[currentTab]) [title, text] = map[currentTab];
-  const bar = document.createElement("section");
-  bar.className = "v62-focus-bar";
-  bar.innerHTML = `<div><p class="eyebrow">FOCUS</p><h3>${escapeHtml(title)}</h3><small>${escapeHtml(text)}</small></div>`;
-  const first = page.firstElementChild;
-  if (first) page.insertBefore(bar, first); else page.appendChild(bar);
+function addPageFocusBarV62() {
+  // Retired: duplicate navigation or decorative dashboard UI.
 }
 function simplifyActiveSessionV62(page) {
-  if (!page) return;
-  const live = page.querySelector(".live-input-panel");
-  if (live && !live.querySelector(".v62-live-note")) {
-    const note = document.createElement("p");
-    note.className = "v62-live-note";
-    note.textContent = "対局中はここだけ見れば入力できます。下の表と精算は確認用です。";
-    live.querySelector(".live-input-heading")?.appendChild(note);
-  }
-  page.querySelectorAll(".game-section").forEach((section) => {
-    const title = section.querySelector(".game-section-title")?.textContent?.trim();
-    if (title) simplifySectionV62(section, title);
-  });
+  // Active sessions have explicit views; input forms must never be auto-collapsed.
+  if (!page || page.querySelector(".session-views" ) || page.querySelector("#createSessionForm")) return;
 }
 function simplifyDashboardCardsV62(page) {
   if (!page) return;
@@ -9149,7 +9068,7 @@ function simplifyDashboardCardsV62(page) {
   });
   page.querySelectorAll(".workspace-description, .game-section-note, .v41-dashboard-tile small, .home-action-card small, .hub-menu-card small").forEach((el) => {
     const text = el.textContent.trim();
-    if (text.length > 46) el.classList.add("v62-muted-short");
+    el.classList.remove("v62-muted-short");
   });
 }
 function simplifySettingsV62(page) {
@@ -9267,7 +9186,7 @@ function getV63Actions() {
   const activeSessionOpen = activeMatchSession?.status === "open";
   const actions = {
     home: [
-      { icon: "🀄", label: "対局開始", sub: "新しい日を作る", tab: "game" },
+      { icon: "🀄", label: "対局開始", sub: "別の日を記録を作る", tab: "game" },
       { icon: "👤", label: "マイページ", sub: "自分の状況", tab: "my-page" },
       { icon: "💴", label: "精算", sub: "未精算を確認", tab: "hub-settlement" }
     ],
@@ -9315,71 +9234,15 @@ function getV63Actions() {
   };
   return actions[kind] || [];
 }
-function addV63ActionStrip(page) {
-  if (!currentSession) return;
-  if (!page) return;
-  page.querySelector(".v63-action-strip")?.remove();
-  const focus = page.querySelector(".v62-focus-bar") || page.firstElementChild;
-  const actions = getV63Actions();
-  if (!focus || !actions.length) return;
-  const strip = document.createElement("section");
-  strip.className = "v63-action-strip";
-  strip.innerHTML = `
-    <div class="v63-action-copy">
-      <p class="eyebrow">NEXT ACTION</p>
-      <strong>よく使う操作</strong>
-    </div>
-    <div class="v63-action-buttons">
-      ${actions.map((action, index) => `
-        <button type="button" class="v63-action-button ${index === 0 ? "primary" : ""}" data-v63-action="${index}">
-          <span class="v63-action-icon">${escapeHtml(action.icon)}</span>
-          <span><strong>${escapeHtml(action.label)}</strong><small>${escapeHtml(action.sub || "")}</small></span>
-        </button>
-      `).join("")}
-    </div>
-  `;
-  focus.insertAdjacentElement("afterend", strip);
-  strip.querySelectorAll("[data-v63-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const index = Number(button.dataset.v63Action);
-      void v63RunAction(actions[index]);
-    });
-  });
+function addV63ActionStrip() {
+  // Retired: duplicate navigation or decorative dashboard UI.
 }
-function addV63ModeSwitch(page) {
-  if (!page) return;
-  const focus = page.querySelector(".v62-focus-bar");
-  if (!focus || focus.querySelector(".v63-mode-switch")) return;
-  const mode = getV63DisplayMode();
-  const switcher = document.createElement("div");
-  switcher.className = "v63-mode-switch";
-  switcher.innerHTML = `
-    <button type="button" class="${mode === "simple" ? "active" : ""}" data-v63-mode="simple">シンプル</button>
-    <button type="button" class="${mode === "detail" ? "active" : ""}" data-v63-mode="detail">詳細</button>
-  `;
-  focus.appendChild(switcher);
-  switcher.querySelectorAll("[data-v63-mode]").forEach((button) => button.addEventListener("click", () => {
-    setV63DisplayMode(button.dataset.v63Mode);
-    applyV63Ui();
-  }));
+function addV63ModeSwitch() {
+  // Retired: duplicate navigation or decorative dashboard UI.
 }
 function applyV63Density(page) {
-  const mode = getV63DisplayMode();
-  document.body.classList.toggle("v63-detail-mode", mode === "detail");
-  document.body.classList.toggle("v63-simple-mode", mode !== "detail");
-  if (!page) return;
-  page.classList.add("v63-page");
-  const isDetail = mode === "detail";
-  page.querySelectorAll(".game-section-note, .workspace-description, .history-calendar-note, .ranking-note").forEach((note) => {
-    if ((note.textContent || "").trim().length > 34) {
-      note.classList.toggle("v63-note-compact", !isDetail);
-    }
-  });
-  page.querySelectorAll(".secondary-button, .icon-text-button, .danger-outline-button").forEach((button) => {
-    if (!button.closest(".v63-action-strip") && !button.closest(".create-wizard-controls-v40")) {
-      button.classList.toggle("v63-secondary-action", !isDetail);
-    }
-  });
+  document.body.classList.remove("v63-detail-mode", "v63-simple-mode");
+  page?.querySelectorAll(".v63-note-compact, .v62-muted-short").forEach(note=>note.classList.remove("v63-note-compact", "v62-muted-short"));
 }
 function applyV63Ui() {
   const page = getPageWorkspace?.();
@@ -9606,18 +9469,7 @@ function renderV64MonthlyTitlesMarkup() {
   </section>`;
 }
 function mountV64MonthlyTitles() {
-  const page = getPageWorkspace?.();
-  if (!page || currentTab !== "ranking") return;
-  if (page.querySelector(".monthly-title-section-v64")) return;
-  const panel = page.querySelector(".ranking-control-panel");
-  const markup = renderV64MonthlyTitlesMarkup();
-  if (!panel || !markup) return;
-  panel.insertAdjacentHTML("afterend", markup);
-  const select = page.querySelector("#v64MonthlyTitleMonthSelect");
-  select?.addEventListener("change", () => {
-    setV64SelectedMonth(select.value);
-    renderRankingPage();
-  });
+  // Retired: duplicate navigation or decorative dashboard UI.
 }
 
 function getV64ComebackDraft() {
@@ -9736,15 +9588,7 @@ function bindV64ComebackSimulator() {
   });
 }
 function mountV64ComebackSimulator() {
-  const page = getPageWorkspace?.();
-  if (!page || currentTab !== "game" || showCreateSession || !activeMatchSession) return;
-  if (page.querySelector(".comeback-simulator-section")) return;
-  const anchor = page.querySelector(".score-sheet-section") || page.querySelector("#liveInputPanel") || page.querySelector(".final-settlement-section");
-  const markup = renderV64ComebackSimulatorMarkup();
-  if (!anchor || !markup) return;
-  if (anchor.classList.contains("score-sheet-section")) anchor.insertAdjacentHTML("afterend", markup);
-  else anchor.insertAdjacentHTML("afterend", markup);
-  bindV64ComebackSimulator();
+  // Retired: speculative simulator is not part of recording or settlement.
 }
 function scheduleV64Ui() {
   requestAnimationFrame(() => {
@@ -10270,4 +10114,108 @@ function bindRuleFieldsV70(form) {
     form.querySelector(up?`[data-rule-seat-up="${other}"]`:`[data-rule-seat-down="${other}"]`)?.focus();
   });
   refreshRulesV70(form);
+}
+
+/* v72: one navigation model for the daily record. */
+let sessionViewV72 = "record";
+let sessionViewIdV72 = null;
+let sessionEditorDirtyV72 = false;
+function allowEditorChangeV72() {
+  if (!sessionEditorDirtyV72) return true;
+  if (!window.confirm("入力中の内容を破棄して切り替えますか？")) return false;
+  sessionEditorDirtyV72=false;
+  return true;
+}
+function foldSectionV72(section, label, open = false, extraClass = "") {
+  if (!section || section.dataset.foldedV72) return;
+  section.dataset.foldedV72="1";
+  const details=document.createElement("details");
+  details.className=`plain-details ${extraClass}`;
+  details.open=open;
+  const summary=document.createElement("summary"); summary.textContent=label;
+  const content=document.createElement("div");content.className="plain-details-content";
+  while(section.firstChild) content.append(section.firstChild);
+  // Summary carries the heading; keep buttons and explanatory content inside.
+  content.querySelector(".game-section-title")?.remove();
+  details.append(summary,content); section.append(details);
+  return details;
+}
+function selectSessionViewV72(view, focus = false) {
+  const card=getPageWorkspace().querySelector(".daily-record");
+  if (!card || !["record","score","settlement"].includes(view)) return;
+  sessionViewV72=view;
+  card.querySelectorAll("[data-session-view]").forEach(button=>{
+    const active=button.dataset.sessionView===view;
+    button.setAttribute("aria-selected",String(active));
+    button.tabIndex=active?0:-1;
+    if(active && focus) button.focus();
+  });
+  card.querySelectorAll("[data-session-panel]").forEach(panel=>{panel.hidden=panel.dataset.sessionPanel!==view;});
+}
+function organizeSessionV72(page) {
+  const card=page.querySelector(".game-card");
+  if(!card || card.classList.contains("daily-record")) return;
+  card.classList.add("daily-record");
+  if(sessionViewIdV72!==activeMatchSessionId) {
+    sessionViewIdV72=activeMatchSessionId;
+    sessionViewV72=activeMatchSession.status==="settled"?"settlement":"record";
+    sessionEditorDirtyV72=false;
+  }
+  if(showHanchanEditor || showChipEditor || showVenueEditor) sessionViewV72="record";
+  else sessionEditorDirtyV72=false;
+  const nav=document.createElement("div");nav.className="session-views";nav.setAttribute("role","tablist");nav.setAttribute("aria-label","対局記録");
+  const panels={};
+  for(const [key,label] of [["record","記録"],["score","結果"],["settlement","精算"]]) {
+    const button=document.createElement("button");button.type="button";button.dataset.sessionView=key;button.id=`session-tab-${key}`;button.setAttribute("role","tab");button.setAttribute("aria-controls",`session-panel-${key}`);button.textContent=label;
+    button.addEventListener("click",()=>selectSessionViewV72(key));
+    button.addEventListener("keydown",event=>{
+      const keys=["record","score","settlement"],index=keys.indexOf(key);
+      const next=event.key==="ArrowRight"?keys[(index+1)%3]:event.key==="ArrowLeft"?keys[(index+2)%3]:event.key==="Home"?keys[0]:event.key==="End"?keys[2]:null;
+      if(next){event.preventDefault();selectSessionViewV72(next,true);}
+    });
+    nav.append(button);
+    const panel=document.createElement("section");panel.id=`session-panel-${key}`;panel.dataset.sessionPanel=key;panel.setAttribute("role","tabpanel");panel.setAttribute("aria-labelledby",button.id);panels[key]=panel;
+  }
+  const live=card.querySelector("#liveInputPanel");
+  const score=card.querySelector(".score-sheet-section");
+  const hand=card.querySelector(".hanchan-detail-section");
+  const progress=card.querySelector(".session-progress-section");
+  const chips=card.querySelector("#chipSummarySection");
+  const venue=card.querySelector("#venueSummarySection");
+  const final=card.querySelector("#finalSettlementSection");
+  if(live) {
+    live.querySelector(".live-input-heading")?.remove();
+    live.querySelector("#jumpFinalSettlementButton")?.remove();
+    const chipButton=live.querySelector("#toggleChipEditorButton");if(chipButton?.disabled) chipButton.remove();
+    live.querySelectorAll(".live-action-icon").forEach(icon=>icon.remove());
+    panels.record.append(live);
+  }
+  if(score) {score.querySelector(".game-section-note").textContent="半荘の番号を押すと、確認・編集できます。";panels.score.append(score);}
+  if(hand){foldSectionV72(hand,"半荘を確認・編集",false,"session-hand-details");panels.score.append(hand);}
+  if(progress){foldSectionV72(progress,"収支の推移");panels.score.append(progress);}
+  if(chips){foldSectionV72(chips,"チップの内訳");panels.settlement.append(chips);}
+  if(venue){foldSectionV72(venue,"場代・先払いの内訳");panels.settlement.append(venue);}
+  if(final) panels.settlement.prepend(final);
+  const info=card.querySelector(".session-info-grid");
+  const infoHost=document.createElement("section");infoHost.className="session-information";
+  if(info) infoHost.append(info);
+  const remove=card.querySelector("#deleteSessionButton"); if(remove) infoHost.append(remove);
+  foldSectionV72(infoHost,"対局情報・ルール・削除");
+  // These are alternate breakdowns of the same score; keep them under Results.
+  const breakdown=document.createElement("section"); breakdown.className="session-breakdown";
+  for(const section of [...card.querySelectorAll(":scope > .game-section")]) breakdown.append(section);
+  if(breakdown.childElementCount) { foldSectionV72(breakdown,"収支の詳しい内訳");panels.score.append(breakdown); }
+  card.append(nav,panels.record,panels.score,panels.settlement,infoHost);
+  const success=card.querySelector(".game-success-message");if(success) {success.setAttribute("role","status");nav.before(success);}
+  const editor=card.querySelector(".hanchan-editor");
+  if(editor) {
+    const sections=[...editor.querySelectorAll("#hanchanForm > .game-section")];
+    const tobi=sections.find(section=>section.querySelector("#autoTobiPanelHost"));
+    if(tobi) foldSectionV72(tobi,"飛ばし点を記録・調整",getTobiMembersFromDraft().length>0 || !!hanchanDraft?.tobiTransfers?.length);
+    const yakuman=sections.find(section=>section.querySelector("#addYakumanButton"));
+    if(yakuman) foldSectionV72(yakuman,"役満を記録",!!hanchanDraft?.yakumanRecords?.length);
+
+  }
+  for(const event of ["input","change"]) card.addEventListener(event,e=>{if(e.target.closest(".live-editor-zone")) sessionEditorDirtyV72=true;},true);
+  selectSessionViewV72(sessionViewV72);
 }

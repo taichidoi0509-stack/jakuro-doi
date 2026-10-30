@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/../app.js','utf8');
+const fn=source.match(/^function allowEditorChangeV72\([^]*?^}/m)[0];
+let confirms=0;
+const context={sessionEditorDirtyV72:false,window:{confirm:()=>{confirms++;return false}}};
+vm.createContext(context);vm.runInContext(fn,context);
+assert.equal(vm.runInContext('allowEditorChangeV72()',context),true);assert.equal(confirms,0);
+context.sessionEditorDirtyV72=true;
+assert.equal(vm.runInContext('allowEditorChangeV72()',context),false);assert.equal(context.sessionEditorDirtyV72,true);
+context.window.confirm=()=>true;
+assert.equal(vm.runInContext('allowEditorChangeV72()',context),true);assert.equal(context.sessionEditorDirtyV72,false);
+console.log('PASS: no prompt for clean input, canceled discard retains dirty input, confirmed discard allows switching');

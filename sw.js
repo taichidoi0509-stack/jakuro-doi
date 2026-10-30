@@ -1,11 +1,11 @@
-const CACHE_NAME = "moriken-mahjong-v71";
+const CACHE_NAME = "moriken-mahjong-v72";
 
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=71",
-  "./app.js?v=71",
-  "./scoring-rules.js?v=71",
+  "./style.css?v=72",
+  "./app.js?v=72",
+  "./scoring-rules.js?v=72",
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "./icons/icon-192.png",

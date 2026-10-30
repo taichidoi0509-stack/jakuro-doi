@@ -3449,3 +3449,79 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--green); out
 .rule-seat-row { display: grid; grid-template-columns: minmax(0,1fr) 44px 44px; align-items: center; gap: 8px; margin-top: 8px; }
 .rule-seat-row span { overflow-wrap: anywhere; }
 .rule-seat-row button { min-height: 44px; padding: 8px; }
+
+/* v72: quiet layout, one location for each action. */
+[hidden] { display: none !important; }
+:root { --shadow: none; --v62-card-radius: 8px; --v62-section-gap: 14px; }
+h1,h2,h3 { letter-spacing: 0; }
+:is(.home-resume-card,.home-start-card,.match-dashboard-primary,.v41-feature-hero) { background: var(--green) !important; background-image: none !important; border-radius: 8px !important; box-shadow: none !important; }
+:is(.home-summary-card,.match-dashboard-recent-panel,.home-recent-panel,.v41-dashboard-tile,.hub-menu-card,.v42-settings-section,.v42-settings-summary,.v65-rating-summary,.rating-section-v65,.game-card,.workspace-card) { border-radius: 8px !important; box-shadow: none !important; background-image: none !important; }
+:is(.home-action-card,.v41-dashboard-tile,.hub-menu-card) { min-height: 64px; }
+:is(.home-action-card,.v41-dashboard-tile) > span:first-child,.hub-menu-icon,.v41-feature-icon { display:none; }
+.home-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.match-entry-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.match-entry-actions button { flex:1; min-height:44px; background:#fff; }
+.v41-operation-note,.v42-settings-heading > div > p:not(.eyebrow) { display:none; }
+.v41-dashboard-grid,.hub-menu-grid { gap:10px; }
+.hub-menu-card { grid-template-columns:minmax(0,1fr) auto; padding:16px; background:#fff; }
+.hub-menu-main small { line-height:1.6; }
+.daily-record { background:transparent !important; border:0; padding:0 !important; }
+.daily-record > .game-card-heading { margin-bottom:14px; align-items:center; }
+.daily-record .game-card-heading h2 { margin:0; font-size:21px; }
+.daily-record .session-selector-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin:0 0 16px; }
+.daily-record .session-selector-row select { min-width:0; }
+.daily-record .session-selector-row button { font-size:12px; padding:10px; }
+.session-views { display:flex; border-bottom:1px solid #cad4ca; margin:0 0 18px; }
+.session-views button { flex:1; min-height:48px; border:0; border-bottom:3px solid transparent; background:transparent; color:var(--muted); font-weight:600; }
+.session-views button[aria-selected="true"] { color:var(--green); border-bottom-color:var(--green); }
+.daily-record [data-session-panel] { min-width:0; }
+.daily-record .game-section,.v62-simple-ui .daily-record .game-section { margin:0 0 16px; padding:14px !important; border:1px solid var(--line) !important; border-radius:8px; background:#fff; box-shadow:none; }
+.daily-record .live-input-panel,.v62-simple-ui .daily-record .live-input-panel { padding:0 !important; border:0 !important; background:transparent; }
+.daily-record .live-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.daily-record .live-action-card { display:block; min-height:48px; padding:12px; border-radius:8px; background:#fff; box-shadow:none; text-align:center; }
+.daily-record .live-action-card.primary { grid-column:1/-1; min-height:56px; background:var(--green); color:#fff; border:0; }
+.daily-record .live-action-card.primary small { color:#e0ebe2; }
+.daily-record .live-action-card strong { font-size:15px; }
+.daily-record .live-action-card small { display:block; margin-top:3px; font-size:11px; }
+.daily-record .live-editor-zone { margin-top:16px; }
+.daily-record .hanchan-editor { padding:14px; border-radius:8px; box-shadow:none; }
+.daily-record .hanchan-editor .game-section { padding:12px 0 !important; border:0 !important; border-bottom:1px solid var(--line) !important; border-radius:0; background:transparent; }
+.daily-record .editor-heading h3 { margin:0 0 8px; font-size:19px; }
+.daily-record .result-entry-card { padding:10px; border-radius:6px; }
+.daily-record .result-input-grid { margin-top:8px; }
+.daily-record .auto-rank-output { background:transparent; border:0; padding:8px 0; }
+.daily-record .result-breakdown { font-size:11px; }
+.daily-record .game-success-message { background:#e8f0e9; border:0; border-radius:6px; padding:12px; }
+.plain-details { margin:0; }
+.plain-details > summary { min-height:48px; display:list-item; padding:12px 4px; cursor:pointer; font-size:14px; font-weight:600; color:var(--ink); }
+.plain-details-content { padding:4px 0 8px; }
+.plain-details-content:empty { display:none; }
+.daily-record .session-information { border-top:1px solid var(--line); margin-top:22px; padding-top:4px; }
+.daily-record .session-info-grid { margin:0 0 16px; }
+.daily-record .section-side-note { display:none; }
+.daily-record .final-settlement-section { margin-top:0; }
+.match-template-chooser { padding:4px 12px !important; background:transparent; border:1px solid var(--line); border-radius:8px; }
+.match-template-chooser .game-section-heading { display:none; }
+.match-template-chooser .template-selected-summary.empty { display:none; }
+.game-section-note,.workspace-description { overflow:visible; -webkit-line-clamp:unset; max-height:none; }
+@media (max-width:430px) {
+ .daily-record .session-select { font-size:14px; padding:10px 8px; }
+ .daily-record .hanchan-editor { padding:12px; }
+ .daily-record .game-card-heading h2 { font-size:19px; }
+ .daily-record .session-status { font-size:11px; padding:5px 8px; }
+}
+.daily-record .result-entry-card { padding:12px 0; border:0; border-bottom:1px solid var(--line); border-radius:0; background:transparent; }
+.daily-record .result-breakdown { display:none; }
+.daily-record .result-input-grid { grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr); }
+.daily-record .result-input-grid input::placeholder { font-size:17px; font-weight:400; color:#929b93; }
+.daily-record .result-input-grid label { font-weight:500; }
+.daily-record .auto-tobi-panel.is-idle { display:none; }
+.daily-record .game-section-title,.daily-record .result-entry-header strong { font-weight:600; }
+.hanchan-editor,.chip-editor,.venue-editor { scroll-margin-top:16px; }
+.session-views { position:sticky; top:0; z-index:6; background:var(--bg); }
+.daily-record .session-selector-row select { font-size:16px; }
+.signin-help { margin:0; color:var(--muted); font-size:13px; line-height:1.7; }
+.session-breakdown { border-top:1px solid var(--line); }
+.v41-settlement-hero { background:#fff !important; color:var(--ink); }
+.v41-settlement-hero p,.v41-settlement-hero small { color:var(--muted); }
+.v41-settlement-hero button { background:var(--green); color:#fff; box-shadow:none; }
