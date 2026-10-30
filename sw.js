@@ -3,8 +3,8 @@ const CACHE_NAME = "moriken-mahjong-v69";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css",
-  "./app.js",
+  "./style.css?v=69",
+  "./app.js?v=69",
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "./icons/icon-192.png",
@@ -46,9 +46,8 @@ self.addEventListener("fetch", (event) => {
     fetch(event.request)
       .then((response) => {
         if (response && response.ok) {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, response.clone());
-          });
+          const copy = response.clone();
+          event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {}));
         }
         return response;
       })

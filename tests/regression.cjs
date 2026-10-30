@@ -25,5 +25,5 @@ assert.equal((context.page.innerHTML.match(/data-session-uma-index/g)||[]).lengt
 assert.doesNotMatch(context.page.innerHTML,/undefined|\$\{uma\}/);
 assert.doesNotMatch(source,/nanikiru/);
 const cacheSource = fs.readFileSync(__dirname + '/../sw.js','utf8');
-for(const [,asset] of cacheSource.matchAll(/"(\.\/[^"\n]*)"/g)) assert.ok(fs.existsSync(__dirname+'/../'+asset),asset);
+for(const [,asset] of cacheSource.matchAll(/"(\.\/[^"\n]*)"/g)) assert.ok(fs.existsSync(__dirname+'/../'+asset.split('?')[0]),asset);
 console.log('PASS: creation renderer, 3 uma fields, quiz removal, cache assets');
