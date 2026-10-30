@@ -314,13 +314,13 @@ function getSessionRateMultiplier() { return num(activeMatchSession?.rate_multip
 
 function createDefaultSessionDraft(mode) {
   const preset = getModePreset(mode);
-  return { sessionDate: todayInJapan(), gameMode: mode, rateLabel: "テンサン", customRateLabel: "", rateMultiplier: 30, startingPoints: preset.startingPoints, chipValue: 4, defaultUma: [...preset.uma], tobiEnabled: true, notes: "", memberIds: [] };
+  return { sessionDate: todayInJapan(), gameMode: mode, rateLabel: "テンサン", customRateLabel: "", rateMultiplier: 30, startingPoints: preset.startingPoints, chipValue: 4, defaultUma: [...preset.uma], tobiEnabled: true, returnPoints: preset.startingPoints, okaMode: "auto", oka: 0, tiePolicy: "split", chipEnabled: true, seatOrder: [], notes: "", memberIds: [] };
 }
 function createDefaultHanchanDraft() {
   if (!activeMatchSession) return null;
   const results = {};
   activeMatchMembers.forEach((member, index) => { results[member.member_id] = { rank: index + 1, finalPoints: "", pointMode: "manual" }; });
-  return { uma: [...activeMatchSession.default_uma], notes: "", results, rankMode: "auto", tobiTransfers: [], tobiRecipientsByFrom: {}, yakumanRecords: [] };
+  return { uma: [...activeMatchSession.default_uma], notes: "", results, rankMode: activeMatchSession.rule_settings?.tie_policy === "manual" ? "manual" : "auto", tobiTransfers: [], tobiRecipientsByFrom: {}, yakumanRecords: [] };
 }
 function createEmptyYakumanRecord() { return { yakumanName: "国士無双", customName: "", winnerMemberId: "", winType: "tsumo", houjuuMemberId: "" }; }
 function getYakumanDisplayName(record) { return record.yakumanName === "その他" ? record.customName.trim() : record.yakumanName; }
@@ -357,10 +357,10 @@ function createHanchanDraftFromRecord(hanchanId) {
   });
 
   return {
-    uma: Array.isArray(hanchan.uma) ? [...hanchan.uma] : [...activeMatchSession.default_uma],
+    uma: Array.isArray(hanchan.input_uma) ? [...hanchan.input_uma] : Array.isArray(hanchan.uma) ? [...hanchan.uma] : [...activeMatchSession.default_uma],
     notes: hanchan.notes || "",
     results,
-    rankMode: "auto",
+    rankMode: activeMatchSession.rule_settings?.tie_policy === "manual" ? "manual" : "auto",
     tobiTransfers,
     tobiRecipientsByFrom: buildTobiRecipientsFromTransfers(tobiTransfers),
     yakumanRecords
@@ -778,7 +778,7 @@ async function fetchGroupExportPayload(groupId) {
   const range = getExportDateRange();
   let sessionsQuery = supabaseClient
     .from("match_sessions")
-    .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, chip_value, default_uma, tobi_enabled, venue_fee_total, notes, status, settled_at, created_at")
+    .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, rule_settings, chip_value, default_uma, tobi_enabled, venue_fee_total, notes, status, settled_at, created_at")
     .eq("group_id", groupId)
     .is("deleted_at", null)
     .order("session_date", { ascending: true })
@@ -804,7 +804,7 @@ async function fetchGroupExportPayload(groupId) {
 
   const [sessionMembersResponse, hanchansResponse, chipsResponse, prepaymentsResponse] = await Promise.all([
     supabaseClient.from("match_session_members").select("session_id, member_id").in("session_id", sessionIds),
-    supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, notes, created_at").in("session_id", sessionIds).order("sequence_no", { ascending: true }),
+    supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, input_uma, notes, created_at").in("session_id", sessionIds).order("sequence_no", { ascending: true }),
     supabaseClient.from("match_session_chips").select("session_id, member_id, chip_count, updated_at").in("session_id", sessionIds),
     supabaseClient.from("match_session_venue_prepayments").select("session_id, member_id, paid_molly, updated_at").in("session_id", sessionIds)
   ]);
@@ -863,6 +863,9 @@ function buildExportFiles(group, payload) {
     rate_label: session.rate_label,
     rate_multiplier_pt_per_game_score: formatExportNumber(session.rate_multiplier, 2),
     starting_points: session.starting_points,
+    return_points: session.rule_settings?.return_points ?? session.starting_points,
+    oka: session.rule_settings?.oka ?? 0,
+    tie_policy: session.rule_settings?.tie_policy || "split",
     chip_value_per_chip: formatExportNumber(session.chip_value, 2),
     default_uma: Array.isArray(session.default_uma) ? session.default_uma.join(" / ") : "",
     tobi_enabled: session.tobi_enabled ? "あり" : "なし",
@@ -1257,7 +1260,7 @@ function openGuestMemberModal() {
 async function loadMatchSessions() {
   const page = getPageWorkspace(); if (!currentSession || !activeGroupId) return renderMatchPage(); page.innerHTML = `<section class="workspace-card loading-card">日次記録を読み込み中...</section>`;
   try {
-    const { data, error } = await supabaseClient.from("match_sessions").select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, chip_value, default_uma, tobi_enabled, venue_fee_total, notes, status, settled_at, created_at").eq("group_id", activeGroupId).is("deleted_at", null).order("session_date", { ascending: false }).order("created_at", { ascending: false }); if (error) throw error; sessionList = data || [];
+    const { data, error } = await supabaseClient.from("match_sessions").select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, rule_settings, chip_value, default_uma, tobi_enabled, venue_fee_total, notes, status, settled_at, created_at").eq("group_id", activeGroupId).is("deleted_at", null).order("session_date", { ascending: false }).order("created_at", { ascending: false }); if (error) throw error; sessionList = data || [];
     if (!sessionList.some((s) => s.id === activeMatchSessionId)) activeMatchSessionId = sessionList.find((s) => s.status === "open")?.id || sessionList[0]?.id || null;
     if (activeMatchSessionId) { localStorage.setItem("jakuroku-active-match-session-id", activeMatchSessionId); await loadActiveMatchSessionDetail(); }
     else { activeMatchSession = null; activeMatchMembers = []; activeHanchans = []; activeHanchanResults = []; activeTobiTransfers = []; activeSessionChips = []; activeYakumanRecords = []; activeVenuePrepayments = []; }
@@ -1267,7 +1270,7 @@ async function loadMatchSessions() {
 async function loadActiveMatchSessionDetail() {
   activeMatchSession = sessionList.find((s) => s.id === activeMatchSessionId) || null; if (!activeMatchSession) return;
   const { data: members, error: membersError } = await supabaseClient.from("match_session_members").select("session_id, member_id").eq("session_id", activeMatchSessionId); if (membersError) throw membersError; activeMatchMembers = members || [];
-  const { data: hanchans, error: hanchansError } = await supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, notes, created_at").eq("session_id", activeMatchSessionId).order("sequence_no", { ascending: true }); if (hanchansError) throw hanchansError; activeHanchans = hanchans || [];
+  const { data: hanchans, error: hanchansError } = await supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, input_uma, notes, created_at").eq("session_id", activeMatchSessionId).order("sequence_no", { ascending: true }); if (hanchansError) throw hanchansError; activeHanchans = hanchans || [];
   const ids = activeHanchans.map((h) => h.id);
   if (ids.length) {
     const [results, transfers, yakumans] = await Promise.all([
@@ -1341,21 +1344,23 @@ function renderCreateSessionView() {
   const memberChoices = activeGroupMembers.map((m) => `<label class="game-member-choice ${sessionDraft.memberIds.includes(m.id) ? "selected" : ""}"><input type="checkbox" data-session-member-id="${m.id}" ${sessionDraft.memberIds.includes(m.id) ? "checked" : ""}><span><strong>${escapeHtml(m.display_name)}</strong><small>${m.role === "admin" ? "管理者" : m.user_id ? "連携済み" : "ゲスト"}</small></span></label>`).join("");
   const umaInputs = sessionDraft.defaultUma.map((value, i) => `<label>${i+1}位<input type="number" step="0.1" data-session-uma-index="${i}" value="${value}"></label>`).join("");
   const rateOptions = RATE_PRESETS.map((item) => `<option value="${item.label}" ${sessionDraft.rateLabel === item.label ? "selected" : ""}>${item.label}${item.multiplier !== null ? `（収支1 = ${item.multiplier} pt）` : ""}</option>`).join("");
-  page.innerHTML = `<section class="game-card"><div class="game-card-heading"><div><p class="eyebrow">NEW DAILY SESSION</p><h2>1日の麻雀会を作成</h2></div>${sessionList.length ? `<button id="backToSessionButton" class="icon-text-button" type="button">戻る</button>` : ""}</div><p class="game-description">ゲーム収支は1,000点単位で記録します。レートは「ゲーム収支1を何ptとして精算するか」を保存します。テンサンは収支1 = 30ptです。</p><form id="createSessionForm"><section class="game-section"><p class="game-section-title">対局形式</p><div class="mode-preset-grid">${Object.entries(MODE_PRESETS).map(([mode, option]) => `<button type="button" class="mode-preset-button ${sessionDraft.gameMode === mode ? "active" : ""}" data-session-mode="${mode}"><strong>${option.label}</strong><small>${option.playerCount}人・初期${option.startingPoints.toLocaleString()}点</small></button>`).join("")}</div></section><section class="game-section"><p class="game-section-title">基本設定</p><div class="game-settings-grid"><label>日付<input type="date" data-session-field="sessionDate" value="${sessionDraft.sessionDate}"></label><label>レート区分<select data-session-field="rateLabel">${rateOptions}</select></label><label>初期持ち点<input type="number" step="100" data-session-field="startingPoints" value="${sessionDraft.startingPoints}"></label><label>チップ単価（1枚あたり）<input type="number" min="0" step="0.1" data-session-field="chipValue" value="${sessionDraft.chipValue}"></label></div>${sessionDraft.rateLabel === "カスタム" ? `<div class="game-settings-grid custom-rate-grid"><label>カスタム名<input type="text" maxlength="40" data-session-field="customRateLabel" value="${escapeHtml(sessionDraft.customRateLabel)}" placeholder="例：特別レート"></label><label>レート倍率（pt / 収支1）<input type="number" min="0.01" max="10000" step="0.01" data-session-field="rateMultiplier" value="${sessionDraft.rateMultiplier}"></label></div>` : `<p class="selected-rate-note">選択中：<strong>収支1 = ${sessionDraft.rateMultiplier} pt</strong></p>`}<label class="toggle-row"><input type="checkbox" data-session-field="tobiEnabled" ${sessionDraft.tobiEnabled ? "checked" : ""}><span><strong>飛ばし点を使う</strong><small>飛ばした人・飛ばされた人ごとの移動を半荘ごとに記録します。</small></span></label></section><section class="game-section"><p class="game-section-title">基本ウマ</p><div class="uma-grid">${umaInputs}</div><p class="game-section-note">半荘ごとにも変更できます。</p></section><section class="game-section"><div class="game-section-heading"><p class="game-section-title">参加者を選択</p><span class="selection-counter">${sessionDraft.memberIds.length} / ${preset.playerCount}人</span></div><div class="game-member-grid">${memberChoices}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="3" data-session-field="notes">${escapeHtml(sessionDraft.notes)}</textarea></section><p id="createSessionMessage" class="game-form-message"></p><button id="createSessionButton" class="save-game-button" type="submit">この日の記録を開始</button></form></section>`;
+  page.innerHTML = `<section class="game-card"><div class="game-card-heading"><div><p class="eyebrow">NEW DAILY SESSION</p><h2>1日の麻雀会を作成</h2></div>${sessionList.length ? `<button id="backToSessionButton" class="icon-text-button" type="button">戻る</button>` : ""}</div><p class="game-description">ゲーム収支は1,000点単位で記録します。レートは「ゲーム収支1を何ptとして精算するか」を保存します。テンサンは収支1 = 30ptです。</p><form id="createSessionForm"><section class="game-section"><p class="game-section-title">対局形式</p><div class="mode-preset-grid">${Object.entries(MODE_PRESETS).map(([mode, option]) => `<button type="button" class="mode-preset-button ${sessionDraft.gameMode === mode ? "active" : ""}" data-session-mode="${mode}"><strong>${option.label}</strong><small>${option.playerCount}人・初期${option.startingPoints.toLocaleString()}点</small></button>`).join("")}</div></section><section class="game-section"><p class="game-section-title">基本設定</p><div class="game-settings-grid"><label>日付<input type="date" data-session-field="sessionDate" value="${sessionDraft.sessionDate}"></label><label>レート区分<select data-session-field="rateLabel">${rateOptions}</select></label><label>初期持ち点<input type="number" step="100" data-session-field="startingPoints" value="${sessionDraft.startingPoints}"></label><label>チップ単価（1枚あたり）<input type="number" min="0" step="0.1" data-session-field="chipValue" value="${sessionDraft.chipValue}"></label></div>${sessionDraft.rateLabel === "カスタム" ? `<div class="game-settings-grid custom-rate-grid"><label>カスタム名<input type="text" maxlength="40" data-session-field="customRateLabel" value="${escapeHtml(sessionDraft.customRateLabel)}" placeholder="例：特別レート"></label><label>レート倍率（pt / 収支1）<input type="number" min="0.01" max="10000" step="0.01" data-session-field="rateMultiplier" value="${sessionDraft.rateMultiplier}"></label></div>` : `<p class="selected-rate-note">選択中：<strong>収支1 = ${sessionDraft.rateMultiplier} pt</strong></p>`}${renderRuleFieldsV70()}<label class="toggle-row"><input type="checkbox" data-session-field="tobiEnabled" ${sessionDraft.tobiEnabled ? "checked" : ""}><span><strong>飛ばし点を使う</strong><small>飛ばした人・飛ばされた人ごとの移動を半荘ごとに記録します。</small></span></label></section><section class="game-section"><p class="game-section-title">基本ウマ</p><div class="uma-grid">${umaInputs}</div><p class="game-section-note">半荘ごとにも変更できます。</p></section><section class="game-section"><div class="game-section-heading"><p class="game-section-title">参加者を選択</p><span class="selection-counter">${sessionDraft.memberIds.length} / ${preset.playerCount}人</span></div><div class="game-member-grid">${memberChoices}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="3" data-session-field="notes">${escapeHtml(sessionDraft.notes)}</textarea></section><p id="createSessionMessage" class="game-form-message"></p><button id="createSessionButton" class="save-game-button" type="submit">この日の記録を開始</button></form></section>`;
   document.getElementById("backToSessionButton")?.addEventListener("click", () => { showCreateSession = false; renderMatchPage(); });
   document.querySelectorAll("[data-session-mode]").forEach((button) => button.addEventListener("click", () => { const next = button.dataset.sessionMode, nextPreset = getModePreset(next), kept = sessionDraft.memberIds.slice(0, nextPreset.playerCount); sessionDraft = createDefaultSessionDraft(next); sessionDraft.memberIds = kept; renderCreateSessionView(); }));
   document.querySelectorAll("[data-session-field]").forEach((input) => { const ev = input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input"; input.addEventListener(ev, () => { const field = input.dataset.sessionField; if (field === "tobiEnabled") { sessionDraft.tobiEnabled = input.checked; return; } if (["sessionDate", "rateLabel", "notes", "customRateLabel"].includes(field)) { sessionDraft[field] = input.value; if (field === "rateLabel") { const rate = getRatePreset(input.value); if (rate?.multiplier !== null) sessionDraft.rateMultiplier = rate.multiplier; renderCreateSessionView(); } return; } sessionDraft[field] = num(input.value); }); });
   document.querySelectorAll("[data-session-uma-index]").forEach((input) => input.addEventListener("input", () => { sessionDraft.defaultUma[Number(input.dataset.sessionUmaIndex)] = num(input.value); }));
   document.querySelectorAll("[data-session-member-id]").forEach((box) => box.addEventListener("change", () => { const id = box.dataset.sessionMemberId, limit = getModePreset(sessionDraft.gameMode).playerCount; if (box.checked) { if (sessionDraft.memberIds.length >= limit) { box.checked = false; alert(`${limit}人まで選択できます。`); return; } sessionDraft.memberIds.push(id); } else sessionDraft.memberIds = sessionDraft.memberIds.filter((x) => x !== id); renderCreateSessionView(); }));
   document.getElementById("createSessionForm").addEventListener("submit", createMatchSession);
+  bindRuleFieldsV70(document.getElementById("createSessionForm"));
 }
 async function createMatchSession(event) {
   event.preventDefault(); const message = document.getElementById("createSessionMessage"), submit = document.getElementById("createSessionButton"), preset = getModePreset(sessionDraft.gameMode);
   if (sessionDraft.memberIds.length !== preset.playerCount) { message.textContent = `参加者を${preset.playerCount}人選択してください。`; return; }
   if (sessionDraft.startingPoints <= 0 || sessionDraft.chipValue < 0 || sessionDraft.rateMultiplier <= 0 || sessionDraft.rateMultiplier > 10000) { message.textContent = "初期持ち点・チップ単価・レート倍率（pt / 収支1）を確認してください。"; return; }
+  try { draftRulesV70(); } catch (error) { message.textContent = error.message; return; }
   const rateLabel = sessionDraft.rateLabel === "カスタム" ? sessionDraft.customRateLabel.trim() : sessionDraft.rateLabel; if (!rateLabel) { message.textContent = "カスタム名を入力してください。"; return; }
   submit.disabled = true; submit.textContent = "作成中..."; message.textContent = "";
-  try { markLocalRealtimeWrite(); const { data, error } = await supabaseClient.rpc("create_match_session", { p_group_id: activeGroupId, p_session_date: sessionDraft.sessionDate, p_game_mode: sessionDraft.gameMode, p_rate_label: rateLabel, p_rate_multiplier: num(sessionDraft.rateMultiplier), p_starting_points: num(sessionDraft.startingPoints), p_chip_value: num(sessionDraft.chipValue), p_default_uma: sessionDraft.defaultUma.map(num), p_tobi_enabled: sessionDraft.tobiEnabled, p_member_ids: sessionDraft.memberIds, p_notes: sessionDraft.notes }); if (error) throw error; activeMatchSessionId = data; localStorage.setItem("jakuroku-active-match-session-id", data); resetMatchViewState(); gameMessage = "この日の記録を開始しました。"; await loadMatchSessions(); }
+  try { markLocalRealtimeWrite(); const { data, error } = await supabaseClient.rpc("create_match_session_v70", { p_rules: draftRulesV70(), p_group_id: activeGroupId, p_session_date: sessionDraft.sessionDate, p_game_mode: sessionDraft.gameMode, p_rate_label: rateLabel, p_rate_multiplier: num(sessionDraft.rateMultiplier), p_starting_points: num(sessionDraft.startingPoints), p_chip_value: sessionDraft.chipEnabled === false ? 0 : num(sessionDraft.chipValue), p_default_uma: MorikenRules.rankBonuses(ruleInputV70()), p_tobi_enabled: sessionDraft.tobiEnabled, p_member_ids: sessionDraft.memberIds, p_notes: sessionDraft.notes }); if (error) throw error; activeMatchSessionId = data; localStorage.setItem("jakuroku-active-match-session-id", data); resetMatchViewState(); gameMessage = "この日の記録を開始しました。"; await loadMatchSessions(); }
   catch (error) { message.textContent = error.message || "日次セッションを作成できませんでした。"; }
   finally { submit.disabled = false; submit.textContent = "この日の記録を開始"; }
 }
@@ -1456,7 +1461,7 @@ function renderActiveSessionView() {
       <div class="session-info-grid">
         <div><span>形式</span><strong>${getModeLabel(session.game_mode)}</strong></div>
         <div><span>レート</span><strong>${escapeHtml(session.rate_label)}（収支1 = ${session.rate_multiplier} pt）</strong></div>
-        <div><span>初期持ち点</span><strong>${Number(session.starting_points).toLocaleString()}点</strong></div>
+        <div><span>初期持ち点</span><strong>${Number(session.starting_points).toLocaleString()}点</strong></div>${session.rule_settings ? `<div><span>返し点 / オカ</span><strong>${Number(session.rule_settings.return_points).toLocaleString()}点 / ${num(session.rule_settings.oka)}</strong></div><div><span>同点時</span><strong>${({split:"均等配分",seat:"指定した優先順",manual:"順位を手入力"})[session.rule_settings.tie_policy] || "均等配分"}</strong></div>` : ""}
         <div><span>チップ単価</span><strong>${session.chip_value} / 枚</strong></div>
       </div>
       ${gameMessage ? `<p class="game-success-message">${escapeHtml(gameMessage)}</p>` : ""}
@@ -1475,9 +1480,9 @@ function renderActiveSessionView() {
             <span class="live-action-icon">🀄</span>
             <span><strong>${liveHanchanLabel}</strong><small>${sortedHanchans.length}半荘登録済み</small></span>
           </button>
-          <button id="toggleChipEditorButton" class="live-action-card" type="button">
+          <button id="toggleChipEditorButton" class="live-action-card" type="button" ${session.rule_settings?.chip_enabled === false ? "disabled" : ""}>
             <span class="live-action-icon">◎</span>
-            <span><strong>チップ</strong><small>${chipStatusLabel}</small></span>
+            <span><strong>チップ${session.rule_settings?.chip_enabled === false ? "なし" : ""}</strong><small>${session.rule_settings?.chip_enabled === false ? "この対局では使いません" : chipStatusLabel}</small></span>
           </button>
           <button id="toggleVenueEditorButton" class="live-action-card" type="button">
             <span class="live-action-icon">場</span>
@@ -1522,7 +1527,7 @@ function renderActiveSessionView() {
       </section>
 
 
-      <section class="game-section" id="chipSummarySection">
+      <section class="game-section" id="chipSummarySection" ${session.rule_settings?.chip_enabled === false ? "hidden" : ""}>
         <div class="game-section-heading">
           <p class="game-section-title">終了時チップ</p>
           <span class="section-side-note">入力は上部の「チップ」から</span>
@@ -1737,7 +1742,9 @@ function getAutoRanksFromFinalPoints() {
   if (!hanchanDraft || !activeMatchMembers.length) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
   if (!activeMatchMembers.every((member) => hasEnteredFinalPoints(member.member_id))) return { complete: false, hasTie: false, valid: false, ranks: {}, displayRanks: {}, umaByMember: {}, tieGroups: [] };
 
-  const ordered = [...activeMatchMembers].sort((a, b) => Number(hanchanDraft.results[b.member_id].finalPoints) - Number(hanchanDraft.results[a.member_id].finalPoints));
+  const priority = activeMatchSession?.rule_settings?.seat_order || [];
+  const seatPriority = activeMatchSession?.rule_settings?.tie_policy === "seat";
+  const ordered = [...activeMatchMembers].sort((a, b) => Number(hanchanDraft.results[b.member_id].finalPoints) - Number(hanchanDraft.results[a.member_id].finalPoints) || (seatPriority ? priority.indexOf(a.member_id) - priority.indexOf(b.member_id) : 0));
   const ranks = {};
   const displayRanks = {};
   const umaByMember = {};
@@ -1748,11 +1755,16 @@ function getAutoRanksFromFinalPoints() {
   while (cursor < ordered.length) {
     const points = Number(hanchanDraft.results[ordered[cursor].member_id].finalPoints);
     let end = cursor + 1;
-    while (end < ordered.length && Number(hanchanDraft.results[ordered[end].member_id].finalPoints) === points) end += 1;
+    while (!seatPriority && end < ordered.length && Number(hanchanDraft.results[ordered[end].member_id].finalPoints) === points) end += 1;
     const group = ordered.slice(cursor, end);
     const displayRank = cursor + 1;
     const splitUma = roundOne(hanchanDraft.uma.slice(cursor, end).reduce((sum, value) => sum + num(value), 0) / group.length);
     const memberIds = group.map((member) => member.member_id);
+    const splitValues = group.map(() => splitUma);
+    if (activeMatchSession?.rule_settings && group.length > 1) {
+      const originalTotal = hanchanDraft.uma.slice(cursor,end).reduce((sum,value)=>sum+num(value),0);
+      splitValues[splitValues.length-1] = roundOne(originalTotal-splitUma*(group.length-1));
+    }
 
     if (group.length > 1) {
       hasTie = true;
@@ -1764,7 +1776,7 @@ function getAutoRanksFromFinalPoints() {
       // 画面表示とウマ計算は displayRanks / umaByMember で同着として扱う。
       ranks[member.member_id] = cursor + offset + 1;
       displayRanks[member.member_id] = displayRank;
-      umaByMember[member.member_id] = splitUma;
+      umaByMember[member.member_id] = splitValues[offset];
     });
     cursor = end;
   }
@@ -1811,7 +1823,7 @@ function calculateDraftHanchanResult(memberId) {
   const r = hanchanDraft.results[memberId];
   const rankState = syncAutoRanks();
   if (!hasEnteredFinalPoints(memberId) || !rankState.complete || !rankState.valid) return { scorePoints: null, umaPoints: null, tobiPoints: null, totalPoints: null };
-  const score = roundOne((Number(r.finalPoints) - num(activeMatchSession.starting_points)) / 1000);
+  const score = roundOne((Number(r.finalPoints) - num(activeMatchSession.rule_settings?.return_points ?? activeMatchSession.starting_points)) / 1000);
   const uma = num(rankState.umaByMember[memberId]);
   const tobi = roundOne(hanchanDraft.tobiTransfers.reduce((sum, transfer) => sum + (transfer.toMemberId === memberId ? num(transfer.points) : 0) - (transfer.fromMemberId === memberId ? num(transfer.points) : 0), 0));
   return { scorePoints: score, umaPoints: uma, tobiPoints: tobi, totalPoints: roundOne(score + uma + tobi) };
@@ -1847,7 +1859,7 @@ function renderHanchanEditor() {
   const autoTobiPanel = renderAutoTobiPanelMarkup();
   const yakumans = hanchanDraft.yakumanRecords.map((r,i) => `<article class="yakuman-entry-card"><div class="yakuman-entry-heading"><strong>役満 ${i+1}</strong><button type="button" class="remove-transfer-button" data-remove-yakuman-index="${i}">削除</button></div><div class="yakuman-entry-grid"><label>役満<select data-yakuman-index="${i}" data-yakuman-field="yakumanName">${YAKUMAN_OPTIONS.map((name) => `<option value="${name}" ${r.yakumanName === name ? "selected" : ""}>${name}</option>`).join("")}</select></label>${r.yakumanName === "その他" ? `<label>役満名<input type="text" maxlength="60" value="${escapeHtml(r.customName)}" data-yakuman-index="${i}" data-yakuman-field="customName"></label>` : ""}<label>あがった人<select data-yakuman-index="${i}" data-yakuman-field="winnerMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.winnerMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>あがり方<select data-yakuman-index="${i}" data-yakuman-field="winType"><option value="tsumo" ${r.winType === "tsumo" ? "selected" : ""}>ツモ</option><option value="ron" ${r.winType === "ron" ? "selected" : ""}>ロン</option></select></label>${r.winType === "ron" ? `<label>放銃者<select data-yakuman-index="${i}" data-yakuman-field="houjuuMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.houjuuMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label>` : ""}</div></article>`).join("");
   const balanceText = balance.complete ? balance.difference === 0 ? `最終持ち点合計：${balance.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${balance.total.toLocaleString()}点 / 差額 ${balance.difference > 0 ? "+" : ""}${balance.difference.toLocaleString()}点` : `最終持ち点入力：${balance.enteredCount} / ${activeMatchMembers.length}人`;
-  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">全員の持ち点を入力してください。順位と同着時のウマは自動計算します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><details class="game-section entry-options"><summary>ウマ・メモを確認／変更</summary><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></details><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
+  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">全員の持ち点を入力してください。順位と同着時のウマは自動計算します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><details class="game-section entry-options"><summary>順位点・メモを確認／変更</summary><p class="game-section-title">順位点（ウマ・オカ合算）</p><div class="uma-grid">${uma}</div><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></details><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
 }
 function bindTobiTransferEvents(root = document) {
   root.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => {
@@ -1989,7 +2001,7 @@ function getEffectiveUmaForSave(rankState) {
   if (!rankState?.valid || hanchanDraft.rankMode === "manual") return effective;
   (rankState.tieGroups || []).forEach((group) => {
     for (let index = group.startIndex; index < group.endIndex; index += 1) {
-      effective[index] = num(group.splitUma);
+      effective[index] = num(rankState.umaByMember[group.memberIds[index-group.startIndex]]);
     }
   });
   return effective;
@@ -2027,6 +2039,7 @@ async function addMatchHanchan(e) {
 
   const payload = {
     p_uma: getEffectiveUmaForSave(rankState),
+    p_input_uma: hanchanDraft.uma.map(num),
     p_results: activeMatchMembers.map((m) => ({
       member_id: m.member_id,
       rank: rankState.ranks[m.member_id],
@@ -2052,11 +2065,11 @@ async function addMatchHanchan(e) {
   try {
     markLocalRealtimeWrite();
     const response = isEditing
-      ? await supabaseClient.rpc("update_match_hanchan", {
+      ? await supabaseClient.rpc("update_match_hanchan_v70", {
           p_hanchan_id: editingHanchanId,
           ...payload
         })
-      : await supabaseClient.rpc("add_match_hanchan", {
+      : await supabaseClient.rpc("add_match_hanchan_v70", {
           p_session_id: activeMatchSessionId,
           ...payload
         });
@@ -3639,10 +3652,12 @@ function installActivityRpcLogger() {
   supabaseClient.__jakurokuActivityLoggerInstalled = true;
   supabaseClient.rpc = async (name, args = {}, options) => {
     if (name === "record_group_activity") return originalRpc(name, args, options);
-    const before = snapshotForActivityRpc(name, args);
+
+    const activityName = name.replace(/_v70$/, "");
+    const before = snapshotForActivityRpc(activityName, args);
     const result = await originalRpc(name, args, options);
     if (!result?.error) {
-      const payload = activityPayloadForRpc(name, args, result, before);
+      const payload = activityPayloadForRpc(activityName, args, result, before);
       if (payload) {
         try { await recordActivity(payload); }
         catch (error) { console.warn("編集履歴の記録に失敗しました。", error); }
@@ -4047,7 +4062,7 @@ async function loadMatchSettingTemplates() {
 
   const { data, error } = await supabaseClient
     .from("match_setting_templates")
-    .select("id, group_id, name, game_mode, rate_label, rate_multiplier, starting_points, uma, chip_unit, tobi_enabled, created_by, created_at, updated_at")
+    .select("id, group_id, name, game_mode, rate_label, rate_multiplier, starting_points, rule_settings, uma, chip_unit, tobi_enabled, created_by, created_at, updated_at")
     .eq("group_id", activeGroupId)
     .order("created_at", { ascending: true });
 
@@ -4076,6 +4091,7 @@ function templateDraftPayload(templateName) {
     return { error: "初期持ち点とチップ単価を確認してください。" };
   }
 
+  try { draftRulesV70(false); } catch (error) { return { error: error.message }; }
   return {
     payload: {
       p_name: String(templateName).trim(),
@@ -4083,8 +4099,9 @@ function templateDraftPayload(templateName) {
       p_rate_label: rateLabel,
       p_rate_multiplier: roundTo(num(sessionDraft.rateMultiplier), 2),
       p_starting_points: Math.round(num(sessionDraft.startingPoints)),
-      p_uma: sessionDraft.defaultUma.map((value) => num(value)),
-      p_chip_unit: roundTo(num(sessionDraft.chipValue), 2),
+      p_uma: MorikenRules.rankBonuses(ruleInputV70()),
+      p_rules: draftRulesV70(false),
+      p_chip_unit: sessionDraft.chipEnabled === false ? 0 : roundTo(num(sessionDraft.chipValue), 2),
       p_tobi_enabled: Boolean(sessionDraft.tobiEnabled)
     }
   };
@@ -4110,6 +4127,12 @@ function applyMatchSettingTemplate(template) {
     ? template.uma.map((value) => num(value))
     : [...getModePreset(mode).uma];
   nextDraft.tobiEnabled = Boolean(template.tobi_enabled);
+  nextDraft.returnPoints = template.rule_settings?.return_points ?? nextDraft.startingPoints;
+  nextDraft.okaMode = template.rule_settings ? "custom" : "auto";
+  nextDraft.oka = template.rule_settings?.oka ?? 0;
+  nextDraft.tiePolicy = template.rule_settings?.tie_policy || "split";
+  nextDraft.chipEnabled = template.rule_settings?.chip_enabled ?? true;
+  if (template.rule_settings?.base_uma) nextDraft.defaultUma = [...template.rule_settings.base_uma];
 
   sessionDraft = nextDraft;
   selectedMatchSettingTemplateId = template.id;
@@ -4145,7 +4168,7 @@ async function saveMatchSettingTemplate(overwrite = false) {
     let data;
     if (overwrite) {
       if (!window.confirm(`「${selected.name}」を現在の設定で上書きしますか？`)) return;
-      const response = await supabaseClient.rpc("update_match_setting_template", {
+      const response = await supabaseClient.rpc("update_match_setting_template_v70", {
         p_template_id: selected.id,
         ...built.payload
       });
@@ -4153,7 +4176,7 @@ async function saveMatchSettingTemplate(overwrite = false) {
       data = { id: selected.id };
       templateMessage = `「${selected.name}」を更新しました。`;
     } else {
-      const response = await supabaseClient.rpc("create_match_setting_template", {
+      const response = await supabaseClient.rpc("create_match_setting_template_v70", {
         p_group_id: activeGroupId,
         ...built.payload
       });
@@ -6098,7 +6121,7 @@ function getBackupRestoreSourceMembersV2(backup) {
 async function fetchBackupSessionBundle(groupId, deletedOnly) {
   let sessionsQuery = supabaseClient
     .from("match_sessions")
-    .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, chip_value, default_uma, tobi_enabled, venue_fee_total, venue_id, notes, status, settled_at, deleted_at, deleted_by, deleted_reason, created_at")
+    .select("id, group_id, session_date, game_mode, rate_label, rate_multiplier, starting_points, rule_settings, chip_value, default_uma, tobi_enabled, venue_fee_total, venue_id, notes, status, settled_at, deleted_at, deleted_by, deleted_reason, created_at")
     .eq("group_id", groupId)
     .order("session_date", { ascending: true })
     .order("created_at", { ascending: true });
@@ -6115,7 +6138,7 @@ async function fetchBackupSessionBundle(groupId, deletedOnly) {
 
   const [sessionMembersResponse, hanchansResponse, chipsResponse, prepaymentsResponse] = await Promise.all([
     supabaseClient.from("match_session_members").select("session_id, member_id").in("session_id", sessionIds),
-    supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, notes, created_at").in("session_id", sessionIds).order("sequence_no", { ascending: true }),
+    supabaseClient.from("match_hanchans").select("id, session_id, sequence_no, uma, input_uma, notes, created_at").in("session_id", sessionIds).order("sequence_no", { ascending: true }),
     supabaseClient.from("match_session_chips").select("session_id, member_id, chip_count, updated_at").in("session_id", sessionIds),
     supabaseClient.from("match_session_venue_prepayments").select("session_id, member_id, paid_molly, updated_at").in("session_id", sessionIds)
   ]);
@@ -6162,7 +6185,7 @@ async function fetchFullBackupV2Payload(groupId) {
     fetchBackupSessionBundle(groupId, true),
     supabaseClient.from("group_members").select("id, group_id, user_id, display_name, role, created_at").eq("group_id", groupId).order("created_at", { ascending: true }),
     supabaseClient.from("match_venues").select("id, group_id, name, note, is_archived, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
-    supabaseClient.from("match_setting_templates").select("id, group_id, name, game_mode, rate_label, rate_multiplier, starting_points, uma, chip_unit, tobi_enabled, created_by, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
+    supabaseClient.from("match_setting_templates").select("id, group_id, name, game_mode, rate_label, rate_multiplier, starting_points, rule_settings, uma, chip_unit, tobi_enabled, created_by, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
     supabaseClient.from("debt_records").select("id, group_id, source_session_id, debtor_member_id, creditor_member_id, original_amount_pt, remaining_amount_pt, status, record_kind, memo, due_date, paid_at, cancelled_at, cancelled_by, cancelled_reason, created_at, updated_at").eq("group_id", groupId).order("created_at", { ascending: true }),
     supabaseClient.from("debt_events").select("id, group_id, debt_id, event_type, amount_pt, related_debt_id, note, occurred_at").eq("group_id", groupId).order("occurred_at", { ascending: true }),
     supabaseClient.from("group_activity_logs").select("id, group_id, actor_user_id, event_type, entity_type, entity_id, summary, details, created_at").eq("group_id", groupId).order("created_at", { ascending: true })
@@ -7900,7 +7923,9 @@ function validateCreateSessionStepV40(step) {
     }
     if (sessionDraft.rateLabel === "カスタム" && !String(sessionDraft.customRateLabel || "").trim()) return "カスタム名を入力してください。";
   }
+  if (step === 1) { try { draftRulesV70(false, false); } catch (error) { return error.message; } }
   if (step === 2 && sessionDraft.memberIds.length !== preset.playerCount) return `参加者を${preset.playerCount}人選択してください。`;
+  if (step === 2) { try { draftRulesV70(); } catch (error) { return error.message; } }
   return "";
 }
 
@@ -8515,6 +8540,7 @@ function updateCreateModeInlineV47(form, next) {
       sessionDraft.defaultUma[Number(input.dataset.sessionUmaIndex)] = num(input.value);
     }));
   }
+  syncRuleFieldsV70(form);
   updateCreateMemberSelectionV47(form);
   syncCreateRateBlockV47(form);
   clearCreateSessionMessageV47();
@@ -10150,3 +10176,98 @@ if (typeof getV63Actions === "function") {
   };
 }
 scheduleV65Ui();
+
+/* v70: explicit, per-session rules. NULL DB settings retain the legacy rules. */
+function ruleInputV70() {
+  const count = getModePreset(sessionDraft.gameMode).playerCount;
+  const returned = sessionDraft.returnPoints ?? sessionDraft.startingPoints;
+  return {playerCount: count, startingPoints: sessionDraft.startingPoints, returnPoints: returned,
+    uma: sessionDraft.defaultUma, oka: sessionDraft.okaMode === "custom" ? sessionDraft.oka : (Number(returned)-Number(sessionDraft.startingPoints))*count/1000,
+    tiePolicy: sessionDraft.tiePolicy || "split", chipEnabled: sessionDraft.chipEnabled !== false};
+}
+function draftRulesV70(requireMembers = true, requireBalance = true) {
+  const rule = MorikenRules.normalize(ruleInputV70(), {allowUnbalanced: !requireBalance});
+  const order = [...new Set([...(sessionDraft.seatOrder || []), ...sessionDraft.memberIds])].filter(id=>sessionDraft.memberIds.includes(id));
+  if (requireMembers && rule.tiePolicy === "seat" && order.length !== rule.playerCount) throw new Error("同点時の優先順を全員分指定してください。");
+  return {version:1, return_points:rule.returnPoints, oka:rule.oka, base_uma:rule.uma,
+    tie_policy:rule.tiePolicy, chip_enabled:rule.chipEnabled, seat_order:requireMembers ? order : []};
+}
+function renderRuleFieldsV70() {
+  const input = ruleInputV70();
+  return `<fieldset class="rule-fields"><legend>点数・同点時のルール</legend>
+    <div class="game-settings-grid"><label>返し点<input type="number" min="100" max="1000000" step="100" data-rule-field="returnPoints" value="${escapeHtml(input.returnPoints)}"></label>
+    <label>オカ<select data-rule-field="okaMode"><option value="auto" ${sessionDraft.okaMode !== "custom" ? "selected" : ""}>持ち点・返し点から自動計算</option><option value="custom" ${sessionDraft.okaMode === "custom" ? "selected" : ""}>自分で指定する</option></select></label>
+    <label>トップへの加算（1,000点単位）<input type="number" step="0.1" data-rule-field="oka" value="${escapeHtml(input.oka)}" ${sessionDraft.okaMode !== "custom" ? "disabled" : ""}></label>
+    <label>同点時の順位<select data-rule-field="tiePolicy"><option value="split" ${input.tiePolicy === "split" ? "selected" : ""}>同着・順位点を均等配分</option><option value="seat" ${input.tiePolicy === "seat" ? "selected" : ""}>指定した優先順で決める</option><option value="manual" ${input.tiePolicy === "manual" ? "selected" : ""}>半荘ごとに順位を手入力</option></select></label></div>
+    <p class="game-section-note">ウマは下の「基本ウマ」で指定します。オカはトップへの加算点です。同着を選ぶと、オカを含む順位点を均等に分けます。0.1単位で割り切れない端数は最後の人で調整します。</p>
+    <p class="rule-balance" data-rule-summary role="status" aria-live="polite"></p></fieldset>
+    <label class="toggle-row"><input type="checkbox" data-rule-field="chipEnabled" ${input.chipEnabled ? "checked" : ""}><span><strong>チップを使う</strong><small>オフの場合、チップ単価は0で保存されます。</small></span></label>`;
+}
+function syncRuleFieldsV70(form) {
+  if (!form) return;
+  const input = ruleInputV70();
+  for (const field of form.querySelectorAll("[data-rule-field]")) {
+    const key = field.dataset.ruleField;
+    if (key === "chipEnabled") field.checked = input.chipEnabled;
+    else if (key === "oka") { field.value = input.oka; field.disabled = sessionDraft.okaMode !== "custom"; }
+    else field.value = sessionDraft[key] ?? (key === "returnPoints" ? input.returnPoints : "");
+  }
+  refreshRulesV70(form);
+}
+function refreshRulesV70(form) {
+  const input = ruleInputV70();
+  const okaField = form.querySelector('[data-rule-field="oka"]');
+  if (okaField) { okaField.disabled = sessionDraft.okaMode !== "custom"; if (okaField.disabled) okaField.value = input.oka; }
+  const chipField = form.querySelector('[data-session-field="chipValue"]');
+  if (chipField) chipField.disabled = !input.chipEnabled;
+  const summary = form.querySelector("[data-rule-summary]");
+  if (summary) {
+    try { const rule=MorikenRules.normalize(input); summary.textContent=`${rule.startingPoints.toLocaleString()}点持ち・${rule.returnPoints.toLocaleString()}点返し ／ オカ ${rule.oka} ／ 収支合計 0`; summary.classList.remove("error"); }
+    catch(error) { summary.textContent=error.message; summary.classList.add("error"); }
+  }
+  const notesSection = form.querySelector('[data-session-field="notes"]')?.closest(".game-section");
+  if (notesSection) {
+    let review=notesSection.querySelector("[data-rule-review]");
+    if(!review) { review=document.createElement("div");review.dataset.ruleReview="";notesSection.prepend(review); }
+    const order=[...new Set([...(sessionDraft.seatOrder||[]),...sessionDraft.memberIds])].filter(id=>sessionDraft.memberIds.includes(id));
+    review.innerHTML=`<p class="game-section-title">開始前の確認</p><p class="game-section-note">${escapeHtml(getModePreset(sessionDraft.gameMode).label)} ／ ${escapeHtml(sessionDraft.startingPoints)}点持ち・${escapeHtml(input.returnPoints)}点返し<br>ウマ ${sessionDraft.defaultUma.map(escapeHtml).join(" / ")} ／ オカ ${escapeHtml(input.oka)}<br>同点：${({split:"均等配分",seat:"指定した優先順",manual:"順位を手入力"})[input.tiePolicy]}<br>チップ ${input.chipEnabled ? `あり（単価 ${escapeHtml(sessionDraft.chipValue)}）` : "なし"} ／ 飛ばし点 ${sessionDraft.tobiEnabled ? "あり" : "なし"}${input.tiePolicy === "seat" ? `<br>優先順：${order.map(id=>escapeHtml(getMemberName(id))).join(" → ")}` : ""}</p>`;
+  }
+  const memberSection = form.querySelector(".game-member-grid")?.closest(".game-section");
+  if (!memberSection) return;
+  let host = form.querySelector("[data-rule-seat-order]");
+  if (!host) { host=document.createElement("div");host.dataset.ruleSeatOrder="";memberSection.append(host); }
+  host.hidden = input.tiePolicy !== "seat";
+  const order = [...new Set([...(sessionDraft.seatOrder || []),...sessionDraft.memberIds])].filter(id=>sessionDraft.memberIds.includes(id));
+  sessionDraft.seatOrder=order;
+  const signature=JSON.stringify(order.map(id=>[id,getMemberName(id)]));
+  if (host.dataset.signature === signature) return;
+  host.dataset.signature=signature;
+  host.innerHTML=`<p class="game-section-title">同点時の優先順</p><p class="game-section-note">上の人を優先します。席順を使う場合は東→南→西→北の順に並べてください。</p>${order.length ? order.map((id,index)=>`<div class="rule-seat-row"><span>${index+1}. ${escapeHtml(getMemberName(id))}</span><button type="button" class="secondary-button" data-rule-seat-up="${index}" ${index===0?"disabled":""} aria-label="${escapeHtml(getMemberName(id))}の優先順を上げる">↑</button><button type="button" class="secondary-button" data-rule-seat-down="${index}" ${index===order.length-1?"disabled":""} aria-label="${escapeHtml(getMemberName(id))}の優先順を下げる">↓</button></div>`).join("") : '<p class="game-section-note">参加者を選ぶと並べ替えられます。</p>'}`;
+}
+function bindRuleFieldsV70(form) {
+  if (!form || form.dataset.rulesReady) return;
+  form.dataset.rulesReady="1";
+  const refresh=event=>{
+    const field=event.target.closest("[data-rule-field]");
+    if (field) {
+      const key=field.dataset.ruleField;
+      if (key === "okaMode" && field.value === "custom") sessionDraft.oka=ruleInputV70().oka;
+      sessionDraft[key]=field.type === "checkbox" ? field.checked : field.value;
+    }
+    // Run after existing inline listeners have updated the draft.
+    queueMicrotask(()=>{ if(form.isConnected) refreshRulesV70(form); });
+  };
+  form.addEventListener("input",refresh,true);
+  form.addEventListener("change",refresh,true);
+  form.addEventListener("click",event=>{
+    const button=event.target.closest("[data-rule-seat-up],[data-rule-seat-down]");
+    if(!button) return;
+    const up=button.hasAttribute("data-rule-seat-up"), index=Number(up?button.dataset.ruleSeatUp:button.dataset.ruleSeatDown), other=index+(up?-1:1);
+    const order=sessionDraft.seatOrder;
+    if(other<0 || other>=order.length) return;
+    [order[index],order[other]]=[order[other],order[index]];
+    refreshRulesV70(form);
+    form.querySelector(up?`[data-rule-seat-up="${other}"]`:`[data-rule-seat-down="${other}"]`)?.focus();
+  });
+  refreshRulesV70(form);
+}

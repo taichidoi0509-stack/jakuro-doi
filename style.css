@@ -3439,3 +3439,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--green); out
 .result-input-grid input { padding: 8px 10px; min-height: 48px; }
 .result-entry-card { padding: 12px; }
 .result-breakdown { margin: 8px 0 0; }
+.rule-fields { min-width: 0; margin: 18px 0 0; padding: 16px 0; border: 0; border-top: 1px solid var(--line); }
+.rule-fields legend { padding: 0 8px 0 0; font-weight: 700; font-size: 14px; }
+.rule-fields label { display: grid; gap: 6px; font-size: 12px; }
+.rule-fields input, .rule-fields select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font-size: 16px; }
+.rule-fields input:disabled { background: #f0f2ee; }
+.rule-balance { margin: 12px 0 0; padding: 10px; color: var(--green); background: var(--green-soft); font-size: 12px; border-radius: 8px; overflow-wrap: anywhere; }
+.rule-balance.error { color: var(--danger); background: var(--danger-soft); }
+.rule-seat-row { display: grid; grid-template-columns: minmax(0,1fr) 44px 44px; align-items: center; gap: 8px; margin-top: 8px; }
+.rule-seat-row span { overflow-wrap: anywhere; }
+.rule-seat-row button { min-height: 44px; padding: 8px; }

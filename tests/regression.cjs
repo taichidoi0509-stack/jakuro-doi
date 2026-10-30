@@ -16,9 +16,10 @@ const context = {
   document:{querySelectorAll:()=>[],getElementById:()=>({addEventListener(){}})},
   getPageWorkspace:()=>context.page, getModePreset:()=>context.MODE_PRESETS.sanma,
   escapeHtml: value=>String(value), createMatchSession(){},
+  MorikenRules: require("../scoring-rules.js"), bindRuleFieldsV70(){},
 };
 vm.createContext(context);
-vm.runInContext(extract('renderCreateSessionView'),context);
+for(const name of ['ruleInputV70','renderRuleFieldsV70','renderCreateSessionView']) vm.runInContext(extract(name),context);
 vm.runInContext('renderCreateSessionView()',context);
 assert.match(context.page.innerHTML,/createSessionForm/);
 assert.equal((context.page.innerHTML.match(/data-session-uma-index/g)||[]).length,3);
