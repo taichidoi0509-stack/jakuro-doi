@@ -431,19 +431,66 @@ async function updateAuthUI(session) {
   setHeroStatus(`${getDisplayName(session)}としてログイン中`); authButton.textContent = "ログアウト"; authButton.classList.add("hero-button-logout"); await loadGroups();
 }
 
-function closeAuthModal() { document.querySelector(".auth-overlay")?.remove(); }
+let authReturnFocus = null;
+let authRecoveryPending = false;
+function closeAuthModal() {
+  document.querySelector(".auth-overlay")?.remove();
+  authReturnFocus?.focus();
+}
 function openAuthModal(mode = "login") {
-  closeAuthModal(); const signup = mode === "signup";
-  document.body.insertAdjacentHTML("beforeend", `<div class="auth-overlay"><section class="auth-dialog" role="dialog" aria-modal="true"><button class="auth-close-button" type="button">×</button><p class="eyebrow">森研麻雀倶楽部 ACCOUNT</p><h2>${signup ? "アカウントを作成" : "ログイン"}</h2><form id="authForm" class="auth-form">${signup ? `<label>表示名<input name="displayName" type="text" maxlength="40" required></label>` : ""}<label>メールアドレス<input name="email" type="email" autocomplete="email" required></label><label>パスワード<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required></label><p id="authMessage" class="auth-message"></p><button id="authSubmitButton" class="auth-submit-button" type="submit">${signup ? "登録する" : "ログインする"}</button></form><button id="authModeButton" class="auth-mode-button" type="button">${signup ? "すでに登録済みの場合はログイン" : "初めての場合は新規登録"}</button></section></div>`);
-  const overlay = document.querySelector(".auth-overlay"), form = document.getElementById("authForm"), message = document.getElementById("authMessage"), submit = document.getElementById("authSubmitButton");
-  document.querySelector(".auth-close-button").addEventListener("click", closeAuthModal); overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAuthModal(); }); document.getElementById("authModeButton").addEventListener("click", () => openAuthModal(signup ? "login" : "signup"));
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault(); const fd = new FormData(form); const email = String(fd.get("email") || "").trim(), password = String(fd.get("password") || ""), displayName = String(fd.get("displayName") || "").trim(); message.textContent = ""; submit.disabled = true; submit.textContent = "処理中...";
+  if (!document.querySelector(".auth-overlay")) authReturnFocus = document.activeElement;
+  document.querySelector(".auth-overlay")?.remove();
+  const signup = mode === "signup", reset = mode === "reset", recovery = mode === "recovery";
+  const title = recovery ? "新しいパスワードを設定" : reset ? "パスワードを再設定" : signup ? "アカウントを作成" : "ログイン";
+  const label = recovery ? "パスワードを変更" : reset ? "再設定メールを送る" : signup ? "登録する" : "ログインする";
+  document.body.insertAdjacentHTML("beforeend", `<div class="auth-overlay"><section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle"><button class="auth-close-button" type="button" aria-label="閉じる">×</button><h2 id="authTitle">${title}</h2>${reset ? '<p class="workspace-description">登録したメールアドレスに再設定用のリンクを送ります。</p>' : recovery ? '<p class="workspace-description">8文字以上の新しいパスワードを入力してください。</p>' : ""}<form id="authForm" class="auth-form">${signup ? '<label>表示名<input name="displayName" type="text" autocomplete="nickname" maxlength="40" required></label>' : ""}${!recovery ? '<label>メールアドレス<input name="email" type="email" autocomplete="email" required></label>' : ""}${!reset ? `<label>パスワード<input name="password" type="password" autocomplete="${signup || recovery ? "new-password" : "current-password"}" minlength="8" required></label>` : ""}${recovery ? '<label>パスワード（確認）<input name="confirmation" type="password" autocomplete="new-password" minlength="8" required></label>' : ""}<p id="authMessage" class="auth-message" role="status" aria-live="polite"></p><button id="authSubmitButton" class="auth-submit-button" type="submit">${label}</button></form>${!recovery ? `<button id="authModeButton" class="auth-mode-button" type="button">${reset || signup ? "ログインに戻る" : "初めての方は新規登録"}</button>${!reset && !signup ? '<button id="authResetButton" class="auth-mode-button" type="button">パスワードを忘れた方</button>' : ""}` : ""}</section></div>`);
+  const overlay = document.querySelector(".auth-overlay"), form = overlay.querySelector("form"), message = overlay.querySelector("#authMessage"), submit = overlay.querySelector("#authSubmitButton");
+  overlay.querySelector(".auth-close-button").addEventListener("click", closeAuthModal);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) closeAuthModal(); });
+  overlay.querySelector("#authModeButton")?.addEventListener("click", () => openAuthModal(signup || reset ? "login" : "signup"));
+  overlay.querySelector("#authResetButton")?.addEventListener("click", () => openAuthModal("reset"));
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeAuthModal();
+    if (event.key !== "Tab") return;
+    const fields = [...overlay.querySelectorAll("button:not(:disabled), input")];
+    const first = fields[0], last = fields[fields.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  form.querySelector("input")?.focus();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    const fd = new FormData(form), email = String(fd.get("email") || "").trim(), password = String(fd.get("password") || "");
+    message.textContent = "";
+    if (recovery && password !== fd.get("confirmation")) { message.textContent = "確認用パスワードが一致しません。"; return; }
+    submit.disabled = true; submit.textContent = "処理中…";
+    let complete = false;
     try {
-      if (signup) { const { data, error } = await supabaseClient.auth.signUp({ email, password, options: { emailRedirectTo: APP_URL, data: { display_name: displayName } } }); if (error) throw error; if (data.session) setTimeout(closeAuthModal, 700); else message.textContent = "確認メールを送信しました。メール内のリンクを開いて登録を完了してください。"; }
-      else { const { error } = await supabaseClient.auth.signInWithPassword({ email, password }); if (error) throw error; closeAuthModal(); }
-    } catch (error) { message.textContent = error.message || "処理に失敗しました。"; }
-    finally { submit.disabled = false; submit.textContent = signup ? "登録する" : "ログインする"; }
+      if (reset) {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
+        if (error) throw error;
+        message.textContent = "登録されている場合、再設定メールが届きます。メール内のリンクを開いてください。届かない場合は迷惑メールを確認し、時間をおいてお試しください。";
+        complete = true;
+      } else if (recovery) {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+        authRecoveryPending = false;
+        form.reset();
+        message.textContent = "パスワードを変更しました。閉じるボタンから利用を続けられます。";
+        complete = true;
+      } else if (signup) {
+        const { data, error } = await supabaseClient.auth.signUp({ email, password, options: { emailRedirectTo: APP_URL, data: { display_name: String(fd.get("displayName") || "").trim() } } });
+        if (error) throw error;
+        if (data.session) closeAuthModal();
+        else { message.textContent = "確認メールを送信しました。メール内のリンクを開いて登録を完了してください。"; complete = true; }
+      } else {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        closeAuthModal();
+      }
+    } catch (error) { message.textContent = error.message || "処理に失敗しました。通信状態を確認して再度お試しください。"; }
+    finally { submit.disabled = complete; submit.textContent = complete ? (recovery ? "変更しました" : "送信しました") : label; }
   });
 }
 
@@ -1784,23 +1831,23 @@ function renderHanchanEditor() {
     const rankLabel = !rankState.complete
       ? "持ち点入力後に確定"
       : !rankState.valid
-        ? "順位を1〜${activeMatchMembers.length}位で重複なく指定"
+        ? `順位を1〜${activeMatchMembers.length}位で重複なく指定`
         : hanchanDraft.rankMode === "manual"
           ? `${rankState.ranks[m.member_id]}位（手入力）`
-          : rankState.hasTie
+          : rankState.tieGroups?.some((group) => group.memberIds.includes(m.member_id))
             ? `${rankState.displayRanks?.[m.member_id] || rankState.ranks[m.member_id]}位同着（ウマを均等分配）`
             : `${rankState.ranks[m.member_id]}位（自動）`;
     const rankControl = showManualRankControl
       ? `<label>順位<select data-hanchan-manual-rank-member-id="${m.member_id}">${Array.from({ length: activeMatchMembers.length }, (_, index) => `<option value="${index + 1}" ${Number(r.rank) === index + 1 ? "selected" : ""}>${index + 1}位</option>`).join("")}</select></label>`
       : `<label>順位<output class="auto-rank-output ${!rankState.valid && rankState.complete ? "error" : ""}" data-hanchan-rank-member-id="${m.member_id}">${rankLabel}</output></label>`;
-    return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
+    return `<article class="result-entry-card"><div class="result-entry-header"><strong>${escapeHtml(getMemberName(m.member_id))}</strong><span data-hanchan-total-member-id="${m.member_id}">${formatScoreMarkup(c.totalPoints)}</span></div><div class="result-input-grid">${rankControl}<label>最終持ち点<input class="signed-number-input ${inputValueClass(r.finalPoints)}" type="number" inputmode="text" enterkeyhint="next" step="100" data-hanchan-result-member-id="${m.member_id}" data-hanchan-result-field="finalPoints" data-hanchan-point-input-id="${m.member_id}" value="${escapeHtml(r.finalPoints)}" placeholder="例：35000 / -1000"><small class="point-mode-badge ${r.pointMode === "auto" ? "auto" : ""}" data-hanchan-point-mode-id="${m.member_id}">${r.pointMode === "auto" ? "自動計算" : "手入力"}</small></label></div><p class="result-breakdown" data-hanchan-breakdown-member-id="${m.member_id}">素点 ${formatScoreMarkup(c.scorePoints)} ／ ウマ ${formatScoreMarkup(c.umaPoints)} ／ 飛ばし点 ${formatScoreMarkup(c.tobiPoints)}</p></article>`;
   }).join("");
   const transfers = renderTobiTransferRows();
   const tobiMembers = getTobiMembersFromDraft();
   const autoTobiPanel = renderAutoTobiPanelMarkup();
   const yakumans = hanchanDraft.yakumanRecords.map((r,i) => `<article class="yakuman-entry-card"><div class="yakuman-entry-heading"><strong>役満 ${i+1}</strong><button type="button" class="remove-transfer-button" data-remove-yakuman-index="${i}">削除</button></div><div class="yakuman-entry-grid"><label>役満<select data-yakuman-index="${i}" data-yakuman-field="yakumanName">${YAKUMAN_OPTIONS.map((name) => `<option value="${name}" ${r.yakumanName === name ? "selected" : ""}>${name}</option>`).join("")}</select></label>${r.yakumanName === "その他" ? `<label>役満名<input type="text" maxlength="60" value="${escapeHtml(r.customName)}" data-yakuman-index="${i}" data-yakuman-field="customName"></label>` : ""}<label>あがった人<select data-yakuman-index="${i}" data-yakuman-field="winnerMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.winnerMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label><label>あがり方<select data-yakuman-index="${i}" data-yakuman-field="winType"><option value="tsumo" ${r.winType === "tsumo" ? "selected" : ""}>ツモ</option><option value="ron" ${r.winType === "ron" ? "selected" : ""}>ロン</option></select></label>${r.winType === "ron" ? `<label>放銃者<select data-yakuman-index="${i}" data-yakuman-field="houjuuMemberId"><option value="">選択</option>${activeMatchMembers.map((m) => `<option value="${m.member_id}" ${r.houjuuMemberId === m.member_id ? "selected" : ""}>${escapeHtml(getMemberName(m.member_id))}</option>`).join("")}</select></label>` : ""}</div></article>`).join("");
   const balanceText = balance.complete ? balance.difference === 0 ? `最終持ち点合計：${balance.total.toLocaleString()}点 / 一致` : `最終持ち点合計：${balance.total.toLocaleString()}点 / 差額 ${balance.difference > 0 ? "+" : ""}${balance.difference.toLocaleString()}点` : `最終持ち点入力：${balance.enteredCount} / ${activeMatchMembers.length}人`;
-  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div></section><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">順位は最終持ち点の高い順に自動で確定します。同点は同着として、該当順位のウマを均等に分配します。例：2・3位同点なら、2位ウマと3位ウマの平均を両者へ配分します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><section class="game-section"><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></section><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
+  return `<section class="hanchan-editor"><div class="editor-heading"><div><p class="eyebrow">${isEditing ? "EDIT HANCHAN" : "ADD HANCHAN"}</p><h3>第${no}半荘を${isEditing ? "編集" : "登録"}</h3></div></div><form id="hanchanForm"><section class="game-section"><p class="game-section-title">最終持ち点</p><p id="hanchanPointBalance" class="point-balance ${balance.complete && balance.difference !== 0 ? "error" : ""}">${balanceText}</p><p class="game-section-note">全員の持ち点を入力してください。順位と同着時のウマは自動計算します。</p><div class="tie-rank-control">${rankState.complete && rankState.hasTie && hanchanDraft.rankMode !== "manual" ? `<p class="game-section-note">同着を自動処理しています。順位を例外的に分ける場合のみ、手入力へ切り替えてください。</p><button type="button" id="enableManualRankButton" class="secondary-button">順位を手入力で指定</button>` : ""}${hanchanDraft.rankMode === "manual" ? `<p class="game-section-note">手入力中：同点でも順位を分けて登録できます。順位は重複なく指定してください。</p><button type="button" id="enableAutoRankButton" class="secondary-button">持ち点から自動判定へ戻す</button>` : ""}</div><div class="result-entry-list">${cards}</div></section>${activeMatchSession.tobi_enabled ? `<section class="game-section"><div class="game-section-heading"><p class="game-section-title">飛ばし点</p><div class="inline-button-group"><button id="addTobiTenButton" class="secondary-button" type="button">＋ 手動10移動</button><button id="addTobiFiveButton" class="secondary-button" type="button">＋ 手動5移動</button></div></div><div id="autoTobiPanelHost">${autoTobiPanel}</div><p id="autoTobiNote" class="game-section-note">${tobiMembers.length ? "上の選択が飛ばし点へ自動反映されます。イレギュラー時だけ手動移動を追加してください。" : "最終持ち点がマイナスになると、自動で飛ばし点の受取先を選べます。"}</p><div id="tobiTransferList" class="tobi-transfer-list">${transfers || `<p class="game-section-note">飛ばし点なし</p>`}</div></section>` : ""}<section class="game-section"><div class="game-section-heading"><p class="game-section-title">役満記録</p><button id="addYakumanButton" class="secondary-button" type="button">＋ 役満を追加</button></div><p class="game-section-note">数え役満、流し役満、四華和、パッチリ、その他も記録できます。</p><div class="yakuman-entry-list">${yakumans || `<p class="game-section-note">役満記録なし</p>`}</div></section><details class="game-section entry-options"><summary>ウマ・メモを確認／変更</summary><p class="game-section-title">この半荘のウマ</p><div class="uma-grid">${uma}</div><p class="game-section-title">メモ</p><textarea class="game-notes-input" rows="2" data-hanchan-note>${escapeHtml(hanchanDraft.notes)}</textarea></details><section id="hanchanPreview" class="game-preview"></section><p id="hanchanFormMessage" class="game-form-message"></p><button id="saveHanchanButton" class="save-game-button" type="submit">${isEditing ? `第${no}半荘の変更を保存` : `第${no}半荘を登録`}</button></form></section>`;
 }
 function bindTobiTransferEvents(root = document) {
   root.querySelectorAll("[data-tobi-field]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => {
@@ -1868,7 +1915,7 @@ function refreshAutoRankOutputs() {
   activeMatchMembers.forEach((member) => {
     const output = document.querySelector(`[data-hanchan-rank-member-id="${member.member_id}"]`);
     if (!output) return;
-    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.hasTie ? `${state.displayRanks?.[member.member_id] || state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
+    output.textContent = !state.complete ? "持ち点入力後に確定" : !state.valid ? "順位を確認" : state.tieGroups?.some((group) => group.memberIds.includes(member.member_id)) ? `${state.displayRanks?.[member.member_id] || state.ranks[member.member_id]}位同着（ウマ均等分配）` : `${state.ranks[member.member_id]}位（自動）`;
     output.classList.toggle("error", Boolean(state.complete && !state.valid));
   });
 }
@@ -3111,7 +3158,24 @@ async function initializeSupabase() {
   if (!SUPABASE_URL.startsWith("https://") || !SUPABASE_PUBLISHABLE_KEY.startsWith("sb_publishable_")) { setHeroStatus("Supabase接続情報を設定してください", true); return; }
   if (!window.supabase) { setHeroStatus("Supabaseライブラリの読み込みに失敗しました", true); return; }
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  const { data: { session } } = await supabaseClient.auth.getSession(); await updateAuthUI(session); supabaseClient.auth.onAuthStateChange((_event, value) => { void updateAuthUI(value); });
+  // Subscribe before getSession: recovery can be emitted during URL initialization.
+  // Defer work outside the auth callback to avoid holding the Auth lock.
+  supabaseClient.auth.onAuthStateChange((event, value) => {
+    if (event === "PASSWORD_RECOVERY") authRecoveryPending = true;
+    window.setTimeout(() => {
+      if (authRecoveryPending && value) openAuthModal("recovery");
+      void updateAuthUI(value);
+    }, 0);
+  });
+  const { data: { session }, error } = await supabaseClient.auth.getSession();
+  if (error) { setHeroStatus("ログイン状態を確認できません。再読み込みしてください。", true); return; }
+  await updateAuthUI(session);
+  const authError = new URLSearchParams(window.location.hash.slice(1)).get("error_description");
+  if (authError) {
+    openAuthModal("reset");
+    document.getElementById("authMessage").textContent = "リンクが無効か、有効期限が切れています。再設定メールを再度送信してください。";
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
 }
 
 
@@ -9018,6 +9082,7 @@ function simplifySectionV62(section, title) {
   }
 }
 function addPageFocusBarV62(page) {
+  if (!currentSession) return;
   if (!page || page.querySelector(".v62-focus-bar")) return;
   let title = "必要な操作だけを先に表示";
   let text = "詳細情報は必要なときだけ開けます。";
@@ -9225,6 +9290,7 @@ function getV63Actions() {
   return actions[kind] || [];
 }
 function addV63ActionStrip(page) {
+  if (!currentSession) return;
   if (!page) return;
   page.querySelector(".v63-action-strip")?.remove();
   const focus = page.querySelector(".v62-focus-bar") || page.firstElementChild;
@@ -10084,665 +10150,3 @@ if (typeof getV63Actions === "function") {
   };
 }
 scheduleV65Ui();
-
-/* v66: Daily Sanma "What would you discard?" challenge */
-const V66_NANIKIRU_DATE_KEY = "moriken-nanikiru-date";
-let nanikiruStateV66 = {
-  groupId: "",
-  date: "",
-  loading: false,
-  loaded: false,
-  submitting: false,
-  error: "",
-  answerError: "",
-  data: null,
-  selectedSlot: 1,
-  selectedTile: ""
-};
-let nanikiruRealtimeChannelV66 = null;
-let nanikiruRealtimeGroupIdV66 = null;
-let nanikiruRealtimeTimerV66 = null;
-
-const V66_DIFFICULTY_LABELS = {
-  beginner: "初級",
-  intermediate: "中級",
-  advanced: "上級",
-  oni: "鬼"
-};
-const V66_CATEGORY_LABELS = {
-  efficiency: "牌効率",
-  all_red: "全赤",
-  flower_north: "華・北",
-  riichi_chip: "リーチ・チップ",
-  defense: "押し引き",
-  special: "特殊条件"
-};
-const V66_RESULT_LABELS = {
-  best: "最善打",
-  acceptable: "有力打",
-  wrong: "不正解"
-};
-const V66_HONOR_LABELS = {
-  "1z": "東",
-  "2z": "南",
-  "3z": "西",
-  "4z": "北",
-  "5z": "白",
-  "6z": "發",
-  "7z": "中"
-};
-const V66_FLOWER_LABELS = {
-  F1: "春",
-  F2: "夏",
-  F3: "秋",
-  F4: "冬"
-};
-
-function resetNanikiruStateV66(groupId = "") {
-  nanikiruStateV66 = {
-    groupId,
-    date: todayInJapan(),
-    loading: false,
-    loaded: false,
-    submitting: false,
-    error: "",
-    answerError: "",
-    data: null,
-    selectedSlot: 1,
-    selectedTile: ""
-  };
-}
-
-function normalizeNanikiruPayloadV66(payload) {
-  if (!payload) return null;
-  if (typeof payload === "string") {
-    try { return JSON.parse(payload); } catch (_) { return null; }
-  }
-  return payload;
-}
-
-function getNanikiruQuestionsV66() {
-  return Array.isArray(nanikiruStateV66.data?.questions) ? nanikiruStateV66.data.questions : [];
-}
-
-function getNanikiruQuestionV66(slot = nanikiruStateV66.selectedSlot) {
-  return getNanikiruQuestionsV66().find((question) => Number(question.slotNo) === Number(slot)) || null;
-}
-
-function setDefaultNanikiruSlotV66() {
-  const questions = getNanikiruQuestionsV66();
-  if (!questions.length) {
-    nanikiruStateV66.selectedSlot = 1;
-    return;
-  }
-  if (questions.some((question) => Number(question.slotNo) === Number(nanikiruStateV66.selectedSlot))) return;
-  const firstUnanswered = questions.find((question) => !question.myAttempt);
-  nanikiruStateV66.selectedSlot = Number(firstUnanswered?.slotNo || questions[0].slotNo || 1);
-}
-
-function tileInfoV66(codeValue) {
-  const code = String(codeValue || "").trim();
-  if (V66_FLOWER_LABELS[code]) return { code, label: V66_FLOWER_LABELS[code], main: V66_FLOWER_LABELS[code], sub: "華", suit: "flower", red: false };
-  if (V66_HONOR_LABELS[code]) return { code, label: V66_HONOR_LABELS[code], main: V66_HONOR_LABELS[code], sub: "", suit: "honor", red: false };
-  const match = code.match(/^([1-9])([mps])(r?)$/i);
-  if (!match) return { code, label: code || "?", main: code || "?", sub: "", suit: "unknown", red: false };
-  const [, number, suitCode, redFlag] = match;
-  const suitLabel = suitCode === "m" ? "萬" : suitCode === "p" ? "筒" : "索";
-  return {
-    code,
-    label: `${redFlag ? "赤" : ""}${number}${suitLabel}`,
-    main: number,
-    sub: suitLabel,
-    suit: suitCode,
-    red: Boolean(redFlag)
-  };
-}
-
-const V67_TILE_ASSET_BASE = "./assets/mahjong";
-
-function tileAssetPathV67(codeValue) {
-  const code = String(codeValue || "").trim();
-  if (V66_FLOWER_LABELS[code]) return `${V67_TILE_ASSET_BASE}/blank.gif`;
-  if (V66_HONOR_LABELS[code]) return `${V67_TILE_ASSET_BASE}/${code}.gif`;
-  const match = code.match(/^([1-9])([mps])(r?)$/i);
-  if (!match) return "";
-  const number = match[1];
-  const suit = match[2].toLowerCase();
-  const red = Boolean(match[3]);
-  if (number === "5" && (suit === "p" || suit === "s")) {
-    return `${V67_TILE_ASSET_BASE}/5${suit}r.gif`;
-  }
-  return `${V67_TILE_ASSET_BASE}/${number}${suit}${red ? "r" : ""}.gif`;
-}
-
-function renderNanikiruTileV66(code, options = {}) {
-  const info = tileInfoV66(code);
-  const sizeClass = options.small ? "small" : options.large ? "large" : "";
-  const assetPath = tileAssetPathV67(info.code);
-  if (assetPath) {
-    const flowerGlyph = info.suit === "flower"
-      ? `<span class="v67-flower-glyph" aria-hidden="true">${escapeHtml(info.main)}</span>`
-      : "";
-    return `<span class="v66-mahjong-tile has-tile-image suit-${info.suit} ${info.red ? "is-red" : ""} ${sizeClass}" aria-label="${escapeHtml(info.label)}" title="${escapeHtml(info.label)}"><img src="${assetPath}" alt="" aria-hidden="true" decoding="async">${flowerGlyph}</span>`;
-  }
-  return `<span class="v66-mahjong-tile suit-${info.suit} ${info.red ? "is-red" : ""} ${sizeClass}" aria-label="${escapeHtml(info.label)}" title="${escapeHtml(info.label)}"><b>${escapeHtml(info.main)}</b>${info.sub ? `<small>${escapeHtml(info.sub)}</small>` : ""}${info.red ? '<i>赤</i>' : ""}</span>`;
-}
-
-function renderNanikiruTilesV66(codes, options = {}) {
-  return (Array.isArray(codes) ? codes : []).map((code) => renderNanikiruTileV66(code, options)).join("");
-}
-
-function formatNanikiruScoreV66(value) {
-  const score = num(value);
-  return Number.isInteger(score) ? String(score) : formatNumber(score, 1);
-}
-
-function getNanikiruResultClassV66(resultType) {
-  return resultType === "best" ? "best" : resultType === "acceptable" ? "acceptable" : "wrong";
-}
-
-function formatNanikiruContextV66(contextValue) {
-  const context = contextValue && typeof contextValue === "object" ? contextValue : {};
-  const windLabels = { east: "東", south: "南", west: "西", north: "北" };
-  const pieces = [];
-  if (context.roundWind) pieces.push(`${windLabels[context.roundWind] || context.roundWind}場`);
-  if (context.seatWind) pieces.push(`${windLabels[context.seatWind] || context.seatWind}家`);
-  if (context.turn) pieces.push(`${context.turn}巡目`);
-  if (context.handState === "two_shanten") pieces.push("二向聴");
-  if (context.closedHand) pieces.push("門前");
-  if (context.flowerHan) pieces.push(`華${context.flowerHan}翻`);
-  if (context.fourFlowersYakuman) pieces.push("四華和条件");
-  return pieces;
-}
-
-function renderNanikiruSituationDetailsV66(question) {
-  const context = question.context && typeof question.context === "object" ? question.context : {};
-  const chips = [];
-  const contextPieces = formatNanikiruContextV66(context);
-  contextPieces.forEach((piece) => chips.push(`<span>${escapeHtml(piece)}</span>`));
-  if (context.allRed) chips.push("<span>全赤</span>");
-  if (context.northIsCommonYakuhai) chips.push("<span>北＝共通役牌</span>");
-  if (Array.isArray(context.chipTargets) && context.chipTargets.length) chips.push("<span>一発・裏チップ</span>");
-  if (Array.isArray(context.opponentActions) && context.opponentActions.some((item) => item?.action === "riichi")) chips.push("<span>他家リーチあり</span>");
-
-  const detailRows = [];
-  if (context.visibleTiles && typeof context.visibleTiles === "object") {
-    const visible = Object.entries(context.visibleTiles).map(([tile, count]) => `${tileInfoV66(tile).label} ${count}枚見え`).join(" ／ ");
-    if (visible) detailRows.push(`<div><span>見えている牌</span><strong>${escapeHtml(visible)}</strong></div>`);
-  }
-  if (context.points && typeof context.points === "object") {
-    const seatLabels = { self: "自分", east: "東家", south: "南家", west: "西家", north: "北家" };
-    const points = Object.entries(context.points).map(([seat, value]) => `${seatLabels[seat] || seat} ${formatNumber(value, 0)}点`).join(" ／ ");
-    if (points) detailRows.push(`<div><span>点棒状況</span><strong>${escapeHtml(points)}</strong></div>`);
-  }
-  if (context.note) detailRows.push(`<div><span>補足</span><strong>${escapeHtml(context.note)}</strong></div>`);
-
-  return `${chips.length ? `<div class="v66-context-chips">${chips.join("")}</div>` : ""}${detailRows.length ? `<div class="v66-context-details">${detailRows.join("")}</div>` : ""}`;
-}
-
-function renderNanikiruDistributionV66(reveal) {
-  const distribution = Array.isArray(reveal?.distribution) ? reveal.distribution : [];
-  if (!distribution.length) return `<p class="v66-empty-note">まだ回答分布はありません。</p>`;
-  const total = distribution.reduce((sum, item) => sum + num(item.count), 0) || 1;
-  return `<div class="v66-distribution-list">${distribution.map((item) => {
-    const percent = Math.round((num(item.count) / total) * 100);
-    return `<div class="v66-distribution-row"><div class="v66-distribution-tile">${renderNanikiruTileV66(item.tile, { small: true })}<strong>${escapeHtml(tileInfoV66(item.tile).label)}</strong></div><div class="v66-distribution-meter"><span style="width:${percent}%"></span></div><b>${num(item.count)}人<br><small>${percent}%</small></b></div>`;
-  }).join("")}</div>`;
-}
-
-function renderNanikiruMemberNamesV66(names, emptyText) {
-  const list = Array.isArray(names) ? names.filter(Boolean) : [];
-  if (!list.length) return `<span class="v66-member-empty">${escapeHtml(emptyText)}</span>`;
-  return list.map((name) => `<span class="v66-member-chip">${escapeHtml(name)}</span>`).join("");
-}
-
-function renderNanikiruRevealV66(question) {
-  const attempt = question.myAttempt;
-  const reveal = question.reveal || {};
-  const explanation = reveal.explanation && typeof reveal.explanation === "object" ? reveal.explanation : {};
-  const resultClass = getNanikiruResultClassV66(attempt?.resultType);
-  const resultLabel = V66_RESULT_LABELS[attempt?.resultType] || "判定済み";
-  const bestTiles = Array.isArray(reveal.bestTiles) ? reveal.bestTiles : [];
-  const acceptableTiles = Array.isArray(reveal.acceptableTiles) ? reveal.acceptableTiles : [];
-  const sections = [
-    ["牌効率", explanation.efficiency],
-    ["打点・価値", explanation.value],
-    ["チップ", explanation.chip],
-    ["守備", explanation.defense]
-  ].filter(([, value]) => value);
-
-  return `<section class="v66-answer-reveal ${resultClass}">
-    <div class="v66-result-banner">
-      <div><span>あなたの回答</span><div>${renderNanikiruTileV66(attempt?.selectedTile, { large: true })}<strong>${escapeHtml(tileInfoV66(attempt?.selectedTile).label)}</strong></div></div>
-      <p><small>判定</small><strong>${escapeHtml(resultLabel)}</strong><em>${formatNanikiruScoreV66(attempt?.score)}点</em></p>
-    </div>
-    <div class="v66-correct-answer-box">
-      <div><span>最善打</span><div class="v66-answer-tile-line">${renderNanikiruTilesV66(bestTiles, { large: true })}<strong>${bestTiles.map((tile) => tileInfoV66(tile).label).join("・")}</strong></div></div>
-      ${acceptableTiles.length ? `<div><span>有力打</span><div class="v66-answer-tile-line">${renderNanikiruTilesV66(acceptableTiles)}<strong>${acceptableTiles.map((tile) => tileInfoV66(tile).label).join("・")}</strong></div></div>` : ""}
-    </div>
-    <article class="v66-explanation-card">
-      <div class="v66-section-title"><p class="eyebrow">ANSWER</p><h3>${escapeHtml(explanation.summary || "解説")}</h3></div>
-      ${sections.map(([label, value]) => `<section><strong>${escapeHtml(label)}</strong><p>${escapeHtml(value)}</p></section>`).join("")}
-    </article>
-    <div class="v66-community-grid">
-      <article><span>最善打を選んだ人</span><div class="v66-member-list">${renderNanikiruMemberNamesV66(reveal.bestMembers, "まだいません")}</div></article>
-      ${Array.isArray(reveal.acceptableMembers) && reveal.acceptableMembers.length ? `<article><span>有力打を選んだ人</span><div class="v66-member-list">${renderNanikiruMemberNamesV66(reveal.acceptableMembers, "まだいません")}</div></article>` : ""}
-    </div>
-    <article class="v66-distribution-card"><div class="v66-section-title"><p class="eyebrow">GROUP ANSWERS</p><h3>みんなが切った牌</h3></div>${renderNanikiruDistributionV66(reveal)}</article>
-    <div class="v66-question-footer-actions"><button type="button" class="primary-button" data-v66-next-question>次の問題へ</button><button type="button" class="secondary-button" data-v66-question-list>10問の一覧を見る</button></div>
-  </section>`;
-}
-
-function renderNanikiruAnswerFormV66(question) {
-  const selected = nanikiruStateV66.selectedTile;
-  return `<section class="v66-answer-panel">
-    <div class="v66-section-title"><p class="eyebrow">YOUR DISCARD</p><h3>何を切る？</h3><small>牌を選んでから回答を確定してください。</small></div>
-    <div class="v66-answer-options">${(question.answerOptions || []).map((tile) => `<button type="button" class="v66-answer-option ${selected === tile ? "selected" : ""}" data-v66-answer-tile="${escapeHtml(tile)}" aria-pressed="${selected === tile ? "true" : "false"}">${renderNanikiruTileV66(tile, { large: true })}<strong>${escapeHtml(tileInfoV66(tile).label)}</strong></button>`).join("")}</div>
-    ${nanikiruStateV66.answerError ? `<p class="v66-answer-error">${escapeHtml(nanikiruStateV66.answerError)}</p>` : ""}
-    <button type="button" class="v66-submit-answer" data-v66-submit-answer ${selected && !nanikiruStateV66.submitting ? "" : "disabled"}>${nanikiruStateV66.submitting ? "判定中..." : selected ? `${escapeHtml(tileInfoV66(selected).label)}を切る` : "切る牌を選択"}</button>
-    <p class="v66-answer-count">現在 ${num(question.answeredCount)}人が回答済みです。回答前は他のメンバーの選択を表示しません。</p>
-  </section>`;
-}
-
-function renderNanikiruQuestionV66(question) {
-  if (!question) return `<section class="workspace-card"><h2>問題がありません</h2><p class="workspace-description">出題データを確認してください。</p></section>`;
-  const difficulty = V66_DIFFICULTY_LABELS[question.difficulty] || question.difficulty || "難易度未設定";
-  const category = V66_CATEGORY_LABELS[question.category] || question.category || "三麻";
-  const dora = Array.isArray(question.doraIndicators) ? question.doraIndicators : [];
-  const flowers = Array.isArray(question.selfFlowers) ? question.selfFlowers : [];
-
-  return `<article class="v66-question-card" data-v66-question-card>
-    <header class="v66-question-heading">
-      <div><p class="eyebrow">QUESTION ${Number(question.slotNo) || "-"} / ${num(nanikiruStateV66.data?.summary?.scheduledCount) || 10}</p><h2>${escapeHtml(question.title || "今日の何切る？")}</h2></div>
-      <div class="v66-question-badges"><span class="difficulty-${escapeHtml(question.difficulty || "beginner")}">${escapeHtml(difficulty)}</span><span>${escapeHtml(category)}</span></div>
-    </header>
-    <p class="v66-situation-text">${escapeHtml(question.situationText || "")}</p>
-    ${renderNanikiruSituationDetailsV66(question)}
-    <section class="v66-table-state">
-      <div class="v66-state-block"><span>ドラ表示牌</span><div class="v66-mini-tile-row">${dora.length ? renderNanikiruTilesV66(dora) : "<em>なし</em>"}</div></div>
-      <div class="v66-state-block"><span>抜き華</span><div class="v66-mini-tile-row">${flowers.length ? renderNanikiruTilesV66(flowers) : "<em>なし</em>"}</div></div>
-      <div class="v66-rule-reminder"><strong>森研三麻</strong><small>全赤・華強制抜き・北は共通役牌・ツモ損あり</small></div>
-    </section>
-    <section class="v66-hand-area">
-      <div class="v66-hand-label"><span>手牌</span><small>横にスクロールできます</small></div>
-      <div class="v66-hand-scroll"><div class="v66-hand-tiles">${renderNanikiruTilesV66(question.handTiles, { large: true })}<span class="v66-drawn-gap"></span><div class="v66-drawn-tile"><small>ツモ</small>${renderNanikiruTileV66(question.drawnTile, { large: true })}</div></div></div>
-    </section>
-    ${question.myAttempt ? renderNanikiruRevealV66(question) : renderNanikiruAnswerFormV66(question)}
-  </article>`;
-}
-
-function renderNanikiruSlotNavigationV66(questions) {
-  return `<div class="v66-slot-navigation" data-v66-question-list-anchor>${questions.map((question) => {
-    const attempt = question.myAttempt;
-    const active = Number(question.slotNo) === Number(nanikiruStateV66.selectedSlot);
-    const resultClass = attempt ? getNanikiruResultClassV66(attempt.resultType) : "unanswered";
-    return `<button type="button" class="v66-slot-button ${active ? "active" : ""} ${resultClass}" data-v66-slot="${Number(question.slotNo)}"><span>${Number(question.slotNo)}</span><small>${attempt ? (attempt.resultType === "best" ? "○" : attempt.resultType === "acceptable" ? "△" : "×") : "未"}</small></button>`;
-  }).join("")}</div>`;
-}
-
-function renderNanikiruPageV66() {
-  const page = getPageWorkspace();
-  heroCard.hidden = true;
-  roadmapSection.hidden = true;
-  getGroupWorkspace().hidden = true;
-  page.hidden = false;
-  setPrimaryNavActiveV34("analytics");
-
-  if (!currentSession || !activeGroupId) {
-    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">DAILY QUIZ</p><h2>ログインが必要です</h2><p class="workspace-description">ログインしてグループに参加すると、今日の何切る？に回答できます。</p></section>`;
-    return;
-  }
-  if (nanikiruStateV66.loading && !nanikiruStateV66.loaded) {
-    page.innerHTML = `<section class="workspace-card loading-card">今日の何切る？を読み込み中...</section>`;
-    return;
-  }
-  if (nanikiruStateV66.error && !nanikiruStateV66.loaded) {
-    page.innerHTML = `<section class="workspace-card"><p class="eyebrow">DAILY QUIZ</p><h2>問題を読み込めませんでした</h2><p class="workspace-description">${escapeHtml(nanikiruStateV66.error)}</p><button type="button" class="primary-button" data-v66-retry>再読み込み</button></section>`;
-    page.querySelector("[data-v66-retry]")?.addEventListener("click", () => void loadNanikiruDataV66(true));
-    return;
-  }
-
-  const data = nanikiruStateV66.data;
-  const questions = getNanikiruQuestionsV66();
-  const summary = data?.summary || {};
-  const scheduled = num(summary.scheduledCount);
-  const answered = num(summary.answeredCount);
-  const completion = scheduled ? Math.min(100, Math.round((answered / scheduled) * 100)) : 0;
-  const question = getNanikiruQuestionV66();
-
-  page.innerHTML = `<section class="v66-nanikiru-page">
-    <header class="v66-page-hero">
-      <div><p class="eyebrow">DAILY SANMA CHALLENGE</p><h1>今日の何切る？</h1><p>全赤・華あり・チップありの森研三麻。1日10問で判断力を磨きます。</p></div>
-      <button type="button" class="v66-refresh-button" data-v66-refresh>更新</button>
-    </header>
-    <section class="v66-progress-card">
-      <div class="v66-progress-main"><span>本日の進捗</span><strong>${answered}<small> / ${scheduled || 10}問</small></strong><div class="v66-progress-track"><i style="width:${completion}%"></i></div></div>
-      <div class="v66-progress-stat"><span>最善打</span><strong>${num(summary.bestCount)}</strong></div>
-      <div class="v66-progress-stat"><span>有力打</span><strong>${num(summary.acceptableCount)}</strong></div>
-      <div class="v66-progress-stat"><span>得点</span><strong>${formatNanikiruScoreV66(summary.score)}<small>点</small></strong></div>
-      <div class="v66-progress-stat"><span>連続完走</span><strong>${num(summary.completionStreak)}<small>日</small></strong></div>
-    </section>
-    ${data?.message ? `<p class="v66-page-message">${escapeHtml(data.message)}</p>` : ""}
-    <section class="v66-question-index"><div class="v66-section-title"><p class="eyebrow">TODAY'S 10</p><h3>問題を選ぶ</h3><small>○ 最善打　△ 有力打　× 不正解</small></div>${renderNanikiruSlotNavigationV66(questions)}</section>
-    ${renderNanikiruQuestionV66(question)}
-  </section>`;
-  bindNanikiruPageEventsV66(page);
-  mountViewContextV34("analytics", "今日の何切る？", "森研三麻・1日10問");
-  if (typeof scheduleSimpleUiV62 === "function") scheduleSimpleUiV62();
-  if (typeof scheduleV63Ui === "function") scheduleV63Ui();
-}
-
-function bindNanikiruPageEventsV66(page) {
-  page.querySelector("[data-v66-refresh]")?.addEventListener("click", () => void loadNanikiruDataV66(true));
-  page.querySelectorAll("[data-v66-slot]").forEach((button) => button.addEventListener("click", () => {
-    nanikiruStateV66.selectedSlot = Number(button.dataset.v66Slot || 1);
-    nanikiruStateV66.selectedTile = "";
-    nanikiruStateV66.answerError = "";
-    renderNanikiruPageV66();
-    requestAnimationFrame(() => document.querySelector("[data-v66-question-card]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }));
-  page.querySelectorAll("[data-v66-answer-tile]").forEach((button) => button.addEventListener("click", () => {
-    nanikiruStateV66.selectedTile = button.dataset.v66AnswerTile || "";
-    nanikiruStateV66.answerError = "";
-    page.querySelectorAll("[data-v66-answer-tile]").forEach((option) => {
-      const selected = option.dataset.v66AnswerTile === nanikiruStateV66.selectedTile;
-      option.classList.toggle("selected", selected);
-      option.setAttribute("aria-pressed", selected ? "true" : "false");
-    });
-    const submit = page.querySelector("[data-v66-submit-answer]");
-    if (submit) {
-      submit.disabled = !nanikiruStateV66.selectedTile;
-      submit.textContent = `${tileInfoV66(nanikiruStateV66.selectedTile).label}を切る`;
-    }
-  }));
-  page.querySelector("[data-v66-submit-answer]")?.addEventListener("click", () => void submitNanikiruAnswerV66());
-  page.querySelector("[data-v66-next-question]")?.addEventListener("click", () => {
-    const questions = getNanikiruQuestionsV66();
-    const currentIndex = questions.findIndex((item) => Number(item.slotNo) === Number(nanikiruStateV66.selectedSlot));
-    const nextUnanswered = questions.slice(currentIndex + 1).find((item) => !item.myAttempt) || questions.find((item) => !item.myAttempt) || questions[Math.min(currentIndex + 1, questions.length - 1)];
-    if (!nextUnanswered) return;
-    nanikiruStateV66.selectedSlot = Number(nextUnanswered.slotNo);
-    nanikiruStateV66.selectedTile = "";
-    renderNanikiruPageV66();
-    requestAnimationFrame(() => document.querySelector("[data-v66-question-card]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  });
-  page.querySelector("[data-v66-question-list]")?.addEventListener("click", () => {
-    document.querySelector("[data-v66-question-list-anchor]")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-}
-
-async function loadNanikiruDataV66(force = false) {
-  if (!currentSession || !activeGroupId || !supabaseClient) return;
-  const groupId = activeGroupId;
-  const date = todayInJapan();
-  if (nanikiruStateV66.groupId !== groupId || nanikiruStateV66.date !== date) resetNanikiruStateV66(groupId);
-  if (nanikiruStateV66.loading && !force) return;
-  nanikiruStateV66.loading = true;
-  nanikiruStateV66.error = "";
-  if (currentTab === "nanikiru") renderNanikiruPageV66();
-  else mountNanikiruHomeCardV66();
-  try {
-    const { data, error } = await supabaseClient.rpc("get_nanikiru_daily", {
-      p_group_id: groupId,
-      p_date: date
-    });
-    if (error) throw error;
-    if (activeGroupId !== groupId) return;
-    const payload = normalizeNanikiruPayloadV66(data);
-    if (!payload) throw new Error("問題データの形式を読み取れませんでした。");
-    const wasLoaded = nanikiruStateV66.loaded;
-    nanikiruStateV66.data = payload;
-    nanikiruStateV66.loaded = true;
-    nanikiruStateV66.loading = false;
-    nanikiruStateV66.error = "";
-    if (!wasLoaded) {
-      const questions = Array.isArray(payload.questions) ? payload.questions : [];
-      const firstUnanswered = questions.find((item) => !item.myAttempt);
-      nanikiruStateV66.selectedSlot = Number(firstUnanswered?.slotNo || questions[0]?.slotNo || 1);
-    } else {
-      setDefaultNanikiruSlotV66();
-    }
-    localStorage.setItem(V66_NANIKIRU_DATE_KEY, date);
-  } catch (error) {
-    nanikiruStateV66.loading = false;
-    nanikiruStateV66.error = error?.message || "今日の問題を読み込めませんでした。";
-  }
-  if (currentTab === "nanikiru") renderNanikiruPageV66();
-  else mountNanikiruHomeCardV66();
-}
-
-async function submitNanikiruAnswerV66() {
-  const question = getNanikiruQuestionV66();
-  if (!question || question.myAttempt || nanikiruStateV66.submitting) return;
-  const selectedTile = nanikiruStateV66.selectedTile;
-  if (!selectedTile) {
-    nanikiruStateV66.answerError = "切る牌を選択してください。";
-    renderNanikiruPageV66();
-    return;
-  }
-  nanikiruStateV66.submitting = true;
-  nanikiruStateV66.answerError = "";
-  const submit = document.querySelector("[data-v66-submit-answer]");
-  if (submit) { submit.disabled = true; submit.textContent = "判定中..."; }
-  try {
-    markLocalRealtimeWrite();
-    const { data, error } = await supabaseClient.rpc("submit_nanikiru_answer", {
-      p_group_id: activeGroupId,
-      p_question_id: question.questionId,
-      p_selected_tile: selectedTile,
-      p_date: todayInJapan()
-    });
-    if (error) throw error;
-    const payload = normalizeNanikiruPayloadV66(data);
-    if (!payload) throw new Error("判定結果を読み取れませんでした。");
-    nanikiruStateV66.data = payload;
-    nanikiruStateV66.loaded = true;
-    nanikiruStateV66.selectedTile = "";
-    nanikiruStateV66.answerError = "";
-  } catch (error) {
-    nanikiruStateV66.answerError = error?.message || "回答を保存できませんでした。";
-  } finally {
-    nanikiruStateV66.submitting = false;
-    renderNanikiruPageV66();
-    requestAnimationFrame(() => document.querySelector("[data-v66-question-card]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }
-}
-
-function buildNanikiruHomeCardV66() {
-  if (nanikiruStateV66.loading && !nanikiruStateV66.loaded) {
-    return `<section class="v66-home-challenge loading"><div><p class="eyebrow">DAILY CHALLENGE</p><h3>今日の何切る？</h3><p>本日の10問を読み込んでいます。</p></div><span class="v66-home-spinner"></span></section>`;
-  }
-  if (nanikiruStateV66.error && !nanikiruStateV66.loaded) {
-    return `<section class="v66-home-challenge error"><div><p class="eyebrow">DAILY CHALLENGE</p><h3>今日の何切る？</h3><p>${escapeHtml(nanikiruStateV66.error)}</p></div><button type="button" data-v66-home-retry>再読み込み</button></section>`;
-  }
-  const summary = nanikiruStateV66.data?.summary || {};
-  const scheduled = num(summary.scheduledCount) || 10;
-  const answered = num(summary.answeredCount);
-  const complete = scheduled > 0 && answered >= scheduled;
-  return `<button type="button" class="v66-home-challenge ${complete ? "complete" : ""}" data-v66-open-nanikiru>
-    <div class="v66-home-challenge-copy"><p class="eyebrow">DAILY CHALLENGE</p><h3>今日の何切る？</h3><p>全赤・華あり・チップありの三麻問題</p></div>
-    <div class="v66-home-challenge-progress"><strong>${answered}<small> / ${scheduled}問</small></strong><span>${complete ? "本日完走" : `得点 ${formatNanikiruScoreV66(summary.score)}点`}</span></div>
-    <span class="v66-home-challenge-arrow">›</span>
-  </button>`;
-}
-
-function mountNanikiruHomeCardV66() {
-  if (currentTab !== "home" || !currentSession || !activeGroupId) return;
-  const dashboard = document.querySelector(".home-dashboard");
-  if (!dashboard) return;
-  dashboard.querySelector(".v66-home-challenge")?.remove();
-  const anchor = dashboard.querySelector(".home-resume-card") || dashboard.querySelector(".home-dashboard-header");
-  if (!anchor) return;
-  anchor.insertAdjacentHTML("afterend", buildNanikiruHomeCardV66());
-  dashboard.querySelector("[data-v66-open-nanikiru]")?.addEventListener("click", () => void openNavigationFeatureV34("nanikiru"));
-  dashboard.querySelector("[data-v66-home-retry]")?.addEventListener("click", () => void loadNanikiruDataV66(true));
-  if (!nanikiruStateV66.loaded && !nanikiruStateV66.loading) void loadNanikiruDataV66();
-}
-
-function mountNanikiruHubCardV66(area) {
-  if (area !== "analytics") return;
-  const list = document.querySelector(".navigation-hub-card .hub-menu-list");
-  if (!list || list.querySelector('[data-v34-feature="nanikiru"]')) return;
-  list.insertAdjacentHTML("afterbegin", hubCardV34("nanikiru", "何", "今日の何切る？", "森研三麻の1日10問。正解者と回答分布も確認"));
-  list.querySelector('[data-v34-feature="nanikiru"]')?.addEventListener("click", () => void openNavigationFeatureV34("nanikiru"));
-}
-
-async function openNanikiruPageV66() {
-  navigationHubV34 = "analytics";
-  settingsFocusV34 = "";
-  currentTab = "nanikiru";
-  setPrimaryNavActiveV34("analytics");
-  heroCard.hidden = true;
-  roadmapSection.hidden = true;
-  getGroupWorkspace().hidden = true;
-  const page = getPageWorkspace();
-  page.hidden = false;
-  renderNanikiruPageV66();
-  await loadNanikiruDataV66();
-  window.scrollTo(0, 0);
-}
-
-function clearNanikiruRealtimeTimerV66() {
-  if (nanikiruRealtimeTimerV66) window.clearTimeout(nanikiruRealtimeTimerV66);
-  nanikiruRealtimeTimerV66 = null;
-}
-
-function queueNanikiruRealtimeRefreshV66() {
-  clearNanikiruRealtimeTimerV66();
-  nanikiruRealtimeTimerV66 = window.setTimeout(() => {
-    if (currentSession && activeGroupId) void loadNanikiruDataV66(true);
-  }, 500);
-}
-
-async function stopNanikiruRealtimeV66() {
-  clearNanikiruRealtimeTimerV66();
-  if (nanikiruRealtimeChannelV66 && supabaseClient) {
-    try { await supabaseClient.removeChannel(nanikiruRealtimeChannelV66); } catch (_) {}
-  }
-  nanikiruRealtimeChannelV66 = null;
-  nanikiruRealtimeGroupIdV66 = null;
-}
-
-async function setupNanikiruRealtimeV66() {
-  if (!supabaseClient || !currentSession || !activeGroupId) {
-    await stopNanikiruRealtimeV66();
-    return;
-  }
-  if (nanikiruRealtimeChannelV66 && nanikiruRealtimeGroupIdV66 === activeGroupId) return;
-  await stopNanikiruRealtimeV66();
-  const groupId = activeGroupId;
-  nanikiruRealtimeChannelV66 = supabaseClient
-    .channel(`jakuroku-nanikiru-${groupId}`)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "nanikiru_answer_events", filter: `group_id=eq.${groupId}` }, () => {
-      if (Date.now() - realtimeLastLocalWriteAt < 1200) return;
-      queueNanikiruRealtimeRefreshV66();
-    })
-    .subscribe();
-  nanikiruRealtimeGroupIdV66 = groupId;
-}
-
-const renderHomeDashboardBeforeV66 = renderHomeDashboardV35;
-renderHomeDashboardV35 = function(...args) {
-  const result = renderHomeDashboardBeforeV66.apply(this, args);
-  mountNanikiruHomeCardV66();
-  return result;
-};
-
-const renderNavigationHubBeforeV66 = renderNavigationHubV34;
-renderNavigationHubV34 = function(area) {
-  const result = renderNavigationHubBeforeV66(area);
-  mountNanikiruHubCardV66(area);
-  return result;
-};
-
-const openNavigationFeatureBeforeV66 = openNavigationFeatureV34;
-openNavigationFeatureV34 = async function(feature) {
-  if (feature === "nanikiru") return openNanikiruPageV66();
-  return openNavigationFeatureBeforeV66(feature);
-};
-
-const setupRealtimeSubscriptionsBeforeV66 = setupRealtimeSubscriptions;
-setupRealtimeSubscriptions = async function() {
-  const result = await setupRealtimeSubscriptionsBeforeV66();
-  await setupNanikiruRealtimeV66();
-  return result;
-};
-
-const stopRealtimeSubscriptionsBeforeV66 = stopRealtimeSubscriptions;
-stopRealtimeSubscriptions = async function() {
-  await stopNanikiruRealtimeV66();
-  return stopRealtimeSubscriptionsBeforeV66();
-};
-
-const switchActiveGroupBeforeV66 = switchActiveGroup;
-switchActiveGroup = async function(groupId) {
-  const result = await switchActiveGroupBeforeV66(groupId);
-  resetNanikiruStateV66(groupId || activeGroupId || "");
-  await setupNanikiruRealtimeV66();
-  if (currentTab === "nanikiru") await loadNanikiruDataV66(true);
-  else if (currentTab === "home") mountNanikiruHomeCardV66();
-  return result;
-};
-
-const updateAuthUIBeforeV66 = updateAuthUI;
-updateAuthUI = async function(session) {
-  if (!session) resetNanikiruStateV66();
-  const result = await updateAuthUIBeforeV66(session);
-  if (session && activeGroupId) {
-    await setupNanikiruRealtimeV66();
-    if (currentTab === "home") mountNanikiruHomeCardV66();
-  }
-  return result;
-};
-
-const refreshCurrentViewFromRealtimeBeforeV66 = refreshCurrentViewFromRealtime;
-refreshCurrentViewFromRealtime = async function(force = false) {
-  if (currentTab === "nanikiru") {
-    await loadNanikiruDataV66(true);
-    return;
-  }
-  return refreshCurrentViewFromRealtimeBeforeV66(force);
-};
-
-if (typeof getV63Actions === "function") {
-  const getV63ActionsBeforeV66 = getV63Actions;
-  getV63Actions = function() {
-    const actions = getV63ActionsBeforeV66.apply(this, arguments).slice();
-    const kind = typeof getV63PageKind === "function" ? getV63PageKind() : currentTab;
-    if (kind === "home" && !actions.some((action) => action.label === "何切る")) {
-      actions.splice(1, 0, { icon: "何", label: "何切る", sub: "今日の10問", tab: "nanikiru" });
-    }
-    if (kind === "hub-analysis" && !actions.some((action) => action.label === "何切る")) {
-      actions.unshift({ icon: "何", label: "何切る", sub: "今日の10問", tab: "nanikiru" });
-    }
-    if (kind === "nanikiru") {
-      const currentQuestion = getNanikiruQuestionV66();
-      return [
-        { icon: "問", label: "問題一覧", sub: "1〜10問", scroll: "[data-v66-question-list-anchor]" },
-        { icon: "▶", label: "回答", sub: currentQuestion?.myAttempt ? "解説を見る" : "牌を選ぶ", scroll: "[data-v66-question-card]" },
-        { icon: "析", label: "分析へ", sub: "成績メニュー", tab: "hub-analysis" }
-      ];
-    }
-    return actions;
-  };
-}
-
-const v63RunActionBeforeV66 = typeof v63RunAction === "function" ? v63RunAction : null;
-if (v63RunActionBeforeV66) {
-  v63RunAction = async function(action) {
-    if (action?.tab === "nanikiru") return openNavigationFeatureV34("nanikiru");
-    if (action?.tab === "hub-analysis") return renderNavigationHubV34("analytics");
-    return v63RunActionBeforeV66(action);
-  };
-}
-
-const primaryAreaForBeforeV66 = primaryAreaForV34;
-primaryAreaForV34 = function(tab = currentTab) {
-  if (tab === "nanikiru") return "analytics";
-  return primaryAreaForBeforeV66(tab);
-};
-
-if (currentSession && activeGroupId) {
-  void setupNanikiruRealtimeV66();
-  if (currentTab === "home") mountNanikiruHomeCardV66();
-}
